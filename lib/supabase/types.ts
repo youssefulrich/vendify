@@ -19,6 +19,11 @@ export type Database = {
           plan: 'free' | 'premium'
           plan_expires_at: string | null
           created_at: string
+          plan_request: string | null
+          plan_request_method: string | null
+          plan_request_note: string | null
+          plan_request_at: string | null
+
         }
         Insert: {
           id: string
@@ -28,6 +33,10 @@ export type Database = {
           pays?: string
           plan?: 'free' | 'premium'
           plan_expires_at?: string | null
+          plan_request?: string | null
+          plan_request_method?: string | null
+          plan_request_note?: string | null
+          plan_request_at?: string | null
         }
         Update: {
           full_name?: string | null
@@ -99,6 +108,8 @@ export type Database = {
           statut?: 'en_attente' | 'paye' | 'livre' | 'annule'
           mode_paiement?: 'wave' | 'orange_money' | 'mtn_momo' | 'cash' | 'autre'
           note?: string | null
+          total?: number   
+
         }
         Update: {
           client_nom?: string
