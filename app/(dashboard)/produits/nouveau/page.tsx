@@ -46,7 +46,7 @@ export default function NouveauProduitPage() {
       prix_vente: parseFloat(prixVente),
       stock: parseInt(stock) || 0,
       stock_alerte: parseInt(stockAlerte) || 3,
-    })
+    } as any)
 
     if (err) {
       setError('Erreur lors de la création du produit.')
