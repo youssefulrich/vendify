@@ -67,7 +67,7 @@ export default function DashboardPage() {
         supabase.from('products').select('stock, stock_alerte').eq('user_id', user.id).eq('actif', true),
       ])
 
-      const profile = profileRes.data
+      const profile = profileRes.data as any
       setShopName(profile?.shop_name || profile?.full_name || 'Vendeur')
       setPlan(profile?.plan || 'free')
 
