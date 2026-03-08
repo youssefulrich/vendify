@@ -93,7 +93,7 @@ export default function CommandesPage() {
 
   async function updateStatut(orderId: string, newStatut: Order['statut']) {
     setUpdatingId(orderId)
-    await supabase.from('orders').update({ statut: newStatut }).eq('id', orderId)
+    await (supabase as any).from('orders').update({ statut: newStatut }).eq('id', orderId)
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, statut: newStatut } : o))
     setUpdatingId(null)
     showToast('Statut mis à jour')

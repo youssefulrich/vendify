@@ -75,9 +75,9 @@ export default function ProduitsPage() {
     setLoading(false)
   }
 
-  async function archiver(id: string) {
+async function archiver(id: string) {
     setArchivingId(id)
-    await supabase.from('products').update({ actif: false }).eq('id', id)
+    await (supabase as any).from('products').update({ actif: false }).eq('id', id)
     setProducts(prev => prev.filter(p => p.id !== id))
     setArchivingId(null)
     showToast('Produit archivé')
