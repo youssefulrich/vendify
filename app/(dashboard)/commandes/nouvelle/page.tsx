@@ -16,7 +16,6 @@ export default function NouvelleCommandePage() {
   const [loading, setLoading] = useState(false)
   const [limitError, setLimitError] = useState('')
 
-  // Form state
   const [clientNom, setClientNom] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   const [canal, setCanal] = useState<'whatsapp' | 'instagram' | 'tiktok' | 'direct'>('whatsapp')
@@ -25,33 +24,19 @@ export default function NouvelleCommandePage() {
   const [note, setNote] = useState('')
   const [items, setItems] = useState([{ product_id: '', quantite: 1 }])
 
-  useEffect(() => {
-    loadProducts()
-  }, [])
+  useEffect(() => { loadProducts() }, [])
 
   async function loadProducts() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('actif', true)
-      .gt('stock', 0)
-      .order('nom')
-
+      .from('products').select('*').eq('user_id', user.id)
+      .eq('actif', true).gt('stock', 0).order('nom')
     setProducts(data || [])
   }
 
-  function addItem() {
-    setItems([...items, { product_id: '', quantite: 1 }])
-  }
-
-  function removeItem(index: number) {
-    setItems(items.filter((_, i) => i !== index))
-  }
-
+  function addItem() { setItems([...items, { product_id: '', quantite: 1 }]) }
+  function removeItem(index: number) { setItems(items.filter((_, i) => i !== index)) }
   function updateItem(index: number, field: string, value: string | number) {
     setItems(items.map((item, i) => i === index ? { ...item, [field]: value } : item))
   }
@@ -67,21 +52,25 @@ export default function NouvelleCommandePage() {
       alert('Veuillez sélectionner un produit pour chaque ligne.')
       return
     }
-
     setLoading(true)
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // Vérifier la limite freemium
     const limit = await checkOrderLimit(user.id)
     if (!limit.allowed) {
-      setLimitError(`Vous avez atteint la limite de 20 commandes ce mois. Passez Premium pour continuer.`)
+      setLimitError('Vous avez atteint la limite de 20 commandes ce mois. Passez Premium pour continuer.')
       setLoading(false)
       return
     }
 
-    // Créer la commande
+    // Calculer le total
+    const orderTotal = items.reduce((sum, item) => {
+      const product = products.find(p => p.id === item.product_id)
+      return sum + (product ? product.prix_vente * item.quantite : 0)
+    }, 0)
+
+    // @ts-ignore
     const { data: order, error } = await supabase
       .from('orders')
       .insert({
@@ -92,6 +81,7 @@ export default function NouvelleCommandePage() {
         statut,
         mode_paiement: modePaiement,
         note: note || null,
+        total: orderTotal,
       })
       .select()
       .single()
@@ -102,7 +92,6 @@ export default function NouvelleCommandePage() {
       return
     }
 
-    // Ajouter les lignes
     const orderItems = items.map(item => {
       const product = products.find(p => p.id === item.product_id)!
       return {
@@ -115,77 +104,130 @@ export default function NouvelleCommandePage() {
     })
 
     await supabase.from('order_items').insert(orderItems)
-
     router.push('/commandes')
   }
 
   const inputStyle = {
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    color: 'var(--text)',
+    background: '#161a22',
+    border: '1px solid rgba(255,255,255,0.08)',
+    color: '#f0f2f7',
     borderRadius: 12,
-    padding: '10px 14px',
-    fontSize: 14,
+    padding: '11px 14px',
+    fontSize: 13,
     outline: 'none',
     width: '100%',
+    transition: 'border-color 0.2s',
   }
 
   const labelStyle = {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 700,
-    letterSpacing: '1px',
+    letterSpacing: '1.2px',
     textTransform: 'uppercase' as const,
-    color: 'var(--muted)',
-    marginBottom: 6,
+    color: '#717a8f',
+    marginBottom: 7,
     display: 'block',
   }
 
+  const cardStyle = {
+    background: '#161a22',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 18,
+    padding: '22px',
+    marginBottom: 16,
+  }
+
   return (
-    <div className="max-w-2xl">
-      <div className="flex items-center gap-3 mb-8">
-        <Link href="/commandes" style={{ color: 'var(--muted)', fontSize: 14 }}>← Retour</Link>
-        <h1 className="font-syne text-2xl font-bold">Nouvelle commande</h1>
+    <div style={{ maxWidth: 680 }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
+        <Link href="/commandes" style={{
+          color: '#717a8f', fontSize: 13, textDecoration: 'none',
+          display: 'flex', alignItems: 'center', gap: 4
+        }}>
+          ← Retour
+        </Link>
+        <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)' }} />
+        <h1 style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800 }}>
+          Nouvelle commande
+        </h1>
       </div>
 
+      {/* Limit error */}
       {limitError && (
-        <div className="rounded-xl p-4 mb-6 text-sm"
-          style={{ background: '#ff5e5e15', border: '1px solid #ff5e5e30', color: 'var(--red)' }}>
+        <div style={{
+          background: 'rgba(255,94,94,0.08)', border: '1px solid rgba(255,94,94,0.2)',
+          borderRadius: 12, padding: '14px 16px', marginBottom: 20,
+          fontSize: 13, color: '#ff5e5e', display: 'flex', alignItems: 'center', gap: 8
+        }}>
           ⚠️ {limitError}
+          <Link href="/premium" style={{ color: '#f5a623', fontWeight: 700, marginLeft: 4 }}>
+            Passer Premium →
+          </Link>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <form onSubmit={handleSubmit}>
 
-        {/* Client */}
-        <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <h2 className="font-syne font-bold mb-4">Informations client</h2>
-          <div className="grid grid-cols-2 gap-4">
+        {/* ── CLIENT ── */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: 'rgba(245,166,35,0.1)', border: '1px solid rgba(245,166,35,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+            }}>👤</div>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 15 }}>
+              Informations client
+            </h2>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <label style={labelStyle}>Nom du client *</label>
-              <input style={inputStyle} value={clientNom} onChange={e => setClientNom(e.target.value)}
-                placeholder="Fatou Diallo" required />
+              <input
+                style={inputStyle} value={clientNom}
+                onChange={e => setClientNom(e.target.value)}
+                placeholder="Fatou Diallo" required
+                onFocus={e => e.target.style.borderColor = 'rgba(245,166,35,0.4)'}
+                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+              />
             </div>
             <div>
               <label style={labelStyle}>Téléphone</label>
-              <input style={inputStyle} value={clientPhone} onChange={e => setClientPhone(e.target.value)}
-                placeholder="+225 07 00 00 00" />
+              <input
+                style={inputStyle} value={clientPhone}
+                onChange={e => setClientPhone(e.target.value)}
+                placeholder="+225 07 00 00 00"
+                onFocus={e => e.target.style.borderColor = 'rgba(245,166,35,0.4)'}
+                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+              />
             </div>
           </div>
         </div>
 
-        {/* Produits */}
-        <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <h2 className="font-syne font-bold mb-4">Produits commandés</h2>
+        {/* ── PRODUITS ── */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: 'rgba(77,140,255,0.1)', border: '1px solid rgba(77,140,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+            }}>🏷️</div>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 15 }}>
+              Produits commandés
+            </h2>
+          </div>
 
-          <div className="flex flex-col gap-3">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {items.map((item, index) => {
               const selectedProduct = products.find(p => p.id === item.product_id)
               return (
-                <div key={index} className="flex gap-3 items-end">
-                  <div className="flex-1">
+                <div key={index} style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1 }}>
                     {index === 0 && <label style={labelStyle}>Produit</label>}
                     <select
-                      style={inputStyle}
+                      style={{ ...inputStyle, cursor: 'pointer' }}
                       value={item.product_id}
                       onChange={e => updateItem(index, 'product_id', e.target.value)}
                       required>
@@ -200,18 +242,28 @@ export default function NouvelleCommandePage() {
                   <div style={{ width: 80 }}>
                     {index === 0 && <label style={labelStyle}>Qté</label>}
                     <input
-                      type="number"
-                      min={1}
+                      type="number" min={1}
                       max={selectedProduct?.stock || 99}
-                      style={inputStyle}
-                      value={item.quantite}
+                      style={inputStyle} value={item.quantite}
                       onChange={e => updateItem(index, 'quantite', parseInt(e.target.value) || 1)}
                     />
                   </div>
+                  {selectedProduct && (
+                    <div style={{ width: 110, paddingBottom: 11, textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, color: '#717a8f', marginBottom: 2 }}>Sous-total</div>
+                      <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 13, color: '#f5a623' }}>
+                        {formatCFA(selectedProduct.prix_vente * item.quantite)}
+                      </div>
+                    </div>
+                  )}
                   {items.length > 1 && (
                     <button type="button" onClick={() => removeItem(index)}
-                      className="rounded-xl w-10 h-10 flex items-center justify-center flex-shrink-0"
-                      style={{ background: '#ff5e5e20', color: 'var(--red)', border: 'none', cursor: 'pointer', marginBottom: 1 }}>
+                      style={{
+                        width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                        background: 'rgba(255,94,94,0.08)', color: '#ff5e5e',
+                        border: '1px solid rgba(255,94,94,0.15)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+                      }}>
                       ✕
                     </button>
                   )}
@@ -221,27 +273,45 @@ export default function NouvelleCommandePage() {
           </div>
 
           <button type="button" onClick={addItem}
-            className="mt-3 text-sm font-semibold"
-            style={{ color: 'var(--gold)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            style={{
+              marginTop: 12, fontSize: 12, fontWeight: 600,
+              color: '#f5a623', background: 'none', border: 'none',
+              cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4
+            }}>
             + Ajouter un produit
           </button>
 
           {total > 0 && (
-            <div className="mt-4 pt-4 flex justify-between items-center font-syne font-black"
-              style={{ borderTop: '1px solid var(--border)' }}>
-              <span style={{ color: 'var(--muted)' }}>Total</span>
-              <span style={{ fontSize: 20, color: 'var(--gold)' }}>{formatCFA(total)}</span>
+            <div style={{
+              marginTop: 16, paddingTop: 16,
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <span style={{ fontSize: 13, color: '#717a8f', fontWeight: 600 }}>Total commande</span>
+              <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 22, color: '#f5a623' }}>
+                {formatCFA(total)}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Détails */}
-        <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <h2 className="font-syne font-bold mb-4">Détails de la commande</h2>
-          <div className="grid grid-cols-2 gap-4 mb-4">
+        {/* ── DÉTAILS ── */}
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: 'rgba(46,204,135,0.1)', border: '1px solid rgba(46,204,135,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14
+            }}>📋</div>
+            <h2 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 15 }}>
+              Détails de la commande
+            </h2>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div>
               <label style={labelStyle}>Canal</label>
-              <select style={inputStyle} value={canal} onChange={e => setCanal(e.target.value as any)}>
+              <select style={{ ...inputStyle, cursor: 'pointer' }} value={canal} onChange={e => setCanal(e.target.value as any)}>
                 <option value="whatsapp">🟢 WhatsApp</option>
                 <option value="instagram">📷 Instagram</option>
                 <option value="tiktok">🎵 TikTok</option>
@@ -250,7 +320,7 @@ export default function NouvelleCommandePage() {
             </div>
             <div>
               <label style={labelStyle}>Mode de paiement</label>
-              <select style={inputStyle} value={modePaiement} onChange={e => setModePaiement(e.target.value as any)}>
+              <select style={{ ...inputStyle, cursor: 'pointer' }} value={modePaiement} onChange={e => setModePaiement(e.target.value as any)}>
                 <option value="wave">🟢 Wave</option>
                 <option value="orange_money">🟠 Orange Money</option>
                 <option value="mtn_momo">🔵 MTN MoMo</option>
@@ -259,44 +329,63 @@ export default function NouvelleCommandePage() {
               </select>
             </div>
           </div>
-          <div className="mb-4">
-            <label style={labelStyle}>Statut</label>
-            <select style={inputStyle} value={statut} onChange={e => setStatut(e.target.value as any)}>
-              <option value="en_attente">En attente</option>
-              <option value="paye">Payé</option>
-              <option value="livre">Livré</option>
-            </select>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>Statut initial</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[
+                { value: 'en_attente', label: 'En attente', color: '#f5a623' },
+                { value: 'paye', label: 'Payé', color: '#2ecc87' },
+                { value: 'livre', label: 'Livré', color: '#4d8cff' },
+              ].map(s => (
+                <button key={s.value} type="button"
+                  onClick={() => setStatut(s.value as any)}
+                  style={{
+                    flex: 1, padding: '9px 8px', borderRadius: 10,
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: statut === s.value ? `${s.color}15` : '#0d0f14',
+                    border: `1px solid ${statut === s.value ? s.color + '40' : 'rgba(255,255,255,0.06)'}`,
+                    color: statut === s.value ? s.color : '#717a8f',
+                    transition: 'all 0.15s'
+                  }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
+
           <div>
             <label style={labelStyle}>Note (optionnel)</label>
             <textarea
-              style={{ ...inputStyle, resize: 'none', height: 80 }}
-              value={note}
-              onChange={e => setNote(e.target.value)}
+              style={{ ...inputStyle, resize: 'none', height: 80 } as React.CSSProperties}
+              value={note} onChange={e => setNote(e.target.value)}
               placeholder="Adresse de livraison, instructions spéciales..."
+              onFocus={e => e.target.style.borderColor = 'rgba(245,166,35,0.4)'}
+              onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
             />
           </div>
         </div>
 
-        {/* Submit */}
-        <div className="flex gap-3">
-          <Link href="/commandes"
-            className="flex-1 rounded-xl py-3 text-sm font-bold text-center"
-            style={{ background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)' }}>
+        {/* ── SUBMIT ── */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Link href="/commandes" style={{
+            flex: 1, background: '#161a22',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 12, padding: '13px',
+            fontSize: 13, fontWeight: 600, color: '#717a8f',
+            textDecoration: 'none', textAlign: 'center'
+          }}>
             Annuler
           </Link>
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-2 rounded-xl py-3 text-sm font-bold"
-            style={{
-              flex: 2,
-              background: 'linear-gradient(135deg, #f5a623, #ffcc6b)',
-              color: '#000',
-              border: 'none',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1
-            }}>
+          <button type="submit" disabled={loading} style={{
+            flex: 2, background: loading ? '#2a3040' : 'linear-gradient(135deg, #f5a623, #ffcc6b)',
+            color: loading ? '#717a8f' : '#000', border: 'none',
+            borderRadius: 12, padding: '13px',
+            fontSize: 14, fontWeight: 700,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            boxShadow: loading ? 'none' : '0 4px 20px rgba(245,166,35,0.25)',
+            transition: 'all 0.2s'
+          }}>
             {loading ? 'Enregistrement...' : '✓ Créer la commande'}
           </button>
         </div>
