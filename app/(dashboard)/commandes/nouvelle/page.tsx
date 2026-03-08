@@ -70,8 +70,8 @@ export default function NouvelleCommandePage() {
       return sum + (product ? product.prix_vente * item.quantite : 0)
     }, 0)
 
-    // @ts-ignore
-    const { data: order, error } = await supabase
+    const sb = supabase as any
+    const { data: order, error } = await sb
       .from('orders')
       .insert({
         user_id: user.id,
@@ -103,7 +103,7 @@ export default function NouvelleCommandePage() {
       }
     })
 
-    await supabase.from('order_items').insert(orderItems)
+    await sb.from('order_items').insert(orderItems)
     router.push('/commandes')
   }
 
