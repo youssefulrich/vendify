@@ -26,7 +26,7 @@ export default function ParametresPage() {
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('profiles').update({
+    await (supabase as any).from('profiles').update({
       full_name: profile.full_name,
       shop_name: profile.shop_name,
       phone: profile.phone,
