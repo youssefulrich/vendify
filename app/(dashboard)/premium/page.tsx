@@ -89,7 +89,7 @@ export default function PremiumPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserEmail(user.email || '')
-      const { data } = await supabase.from('profiles').select('shop_name, plan').eq('id', user.id).single()
+    const { data } = await (supabase as any).from('profiles').select('shop_name, plan').eq('id', user.id).single()
       setShopName(data?.shop_name || '')
       setPlan(data?.plan || 'free')
     }
@@ -106,11 +106,11 @@ export default function PremiumPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     // Insert a pending premium request
-    await supabase.from('profiles').update({
-      plan_request: 'pending',
-      plan_request_method: method,
-      plan_request_note: note,
-      plan_request_at: new Date().toISOString(),
+    await (supabase as any).from('profiles').update({
+    plan_request: 'pending',
+    plan_request_method: method,
+    plan_request_note: note,
+    plan_request_at: new Date().toISOString(),
     }).eq('id', user.id)
     setSubmitted(true)
   }
