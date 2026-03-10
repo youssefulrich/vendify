@@ -74,19 +74,32 @@ export default function PremiumPage() {
 
   const pad = (n: number) => String(n).padStart(2, '0')
 
-  async function handlePay() {
+    async function handlePay() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/premium/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id}) })
-      const data = await res.json()
-      if (!res.ok || !data.checkout_url) throw new Error(data.error || 'Erreur')
-      window.location.href = data.checkout_url
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+        setError('Vous devez être connecté')
+        setLoading(false)
+        return
+        }
+
+        const res = await fetch('/api/premium/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),  // ← le seul vrai changement
+        })
+
+        const data = await res.json()
+        if (!res.ok || !data.checkout_url) throw new Error(data.error || 'Erreur')
+        window.location.href = data.checkout_url
+
     } catch (err: any) {
-      setError(err.message || 'Erreur lors du paiement')
-      setLoading(false)
+        setError(err.message || 'Erreur lors du paiement')
+        setLoading(false)
     }
-  }
+    }
 
   if (plan === 'premium') {
     return (
