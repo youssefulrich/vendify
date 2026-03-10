@@ -78,7 +78,7 @@ export default function PremiumPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/premium/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      const res = await fetch('/api/premium/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id}) })
       const data = await res.json()
       if (!res.ok || !data.checkout_url) throw new Error(data.error || 'Erreur')
       window.location.href = data.checkout_url
