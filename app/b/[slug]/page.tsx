@@ -82,7 +82,7 @@ export default async function BoutiquePage({ params }: Props) {
         .topbar-cta { font-size:11px;color:#717a8f;display:flex;align-items:center;gap:5px; }
         .topbar-cta a { color:#f5a623;font-weight:600;text-decoration:none; }
 
-        /* ── HERO ── */}
+        /* ── HERO ── */
         .hero { position:relative;z-index:1;padding:48px 20px 36px;text-align:center;animation:fadeUp 0.5s ease; }
         .hero-shop-name { font-family:'Syne',sans-serif;font-size:clamp(28px,6vw,48px);font-weight:900;letter-spacing:-1px;margin-bottom:10px; }
         .hero-sub { font-size:14px;color:#717a8f;margin-bottom:20px;font-weight:300; }
