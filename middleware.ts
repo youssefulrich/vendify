@@ -2,9 +2,19 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+  const { pathname } = request.nextUrl
+
+  // ── Routes publiques — jamais interceptées ──
+  const isPublic =
+    pathname.startsWith('/api/premium/webhook') ||  // webhook GeniusPay
+    pathname.startsWith('/api/premium/checkout') ||  // checkout (auth interne)
+    pathname.startsWith('/b/')                        // boutiques publiques
+
+  if (isPublic) {
+    return NextResponse.next()
+  }
+
+  let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,8 +40,8 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const isAuthPage =
-    request.nextUrl.pathname === '/login' ||
-    request.nextUrl.pathname === '/register'
+    pathname === '/login' ||
+    pathname === '/register'
 
   if (!user && !isAuthPage) {
     const url = request.nextUrl.clone()
