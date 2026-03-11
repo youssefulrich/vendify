@@ -34,7 +34,7 @@ export default function BoutiquePage() {
 
       const { data: products } = await supabase
         .from('products')
-        .select('id,nom,description,prix_vente,stock,image_url')
+        .select('id,nom,description,prix_vente,stock,photo_url')
         .eq('user_id', profile.id)
         .gt('stock', 0)
         .order('created_at', { ascending: false })
@@ -152,7 +152,7 @@ export default function BoutiquePage() {
               return (
                 <div key={p.id} className="card" style={{animationDelay:`${i*0.06}s`}}>
                   <div className="card-img">
-                    {p.image_url ? <img src={p.image_url} alt={p.nom}/> : <span>📦</span>}
+                    {p.photo_url ? <img src={p.photo_url} alt={p.nom}/> : <span>📦</span>}
                     <div className="stock-badge" style={{color:p.stock>5?'#2ecc87':'#f5a623'}}>
                       {p.stock>5?'● En stock':`⚠ ${p.stock} restant${p.stock>1?'s':''}`}
                     </div>
