@@ -14,11 +14,20 @@ function formatCFA(n: number) {
   return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA'
 }
 
-// ── Next.js 15 : params est async ──
-type Props = { params: Promise<{ slug: string }> }
+type Props = {
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params
+// Extrait le slug depuis params ou searchParams (Next.js 16 Turbopack)
+async function getSlug(params: Props['params'], searchParams: Props['searchParams']) {
+  const p = await params
+  const sp = await searchParams
+  return p?.slug || sp?.nxtPslug || sp?.slug || ''
+}
+
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+  const slug = await getSlug(params, searchParams)
   const { data: profile } = await supabase
     .from('profiles').select('shop_name,full_name').eq('shop_slug', slug).single()
   if (!profile) return { title: 'Boutique introuvable' }
@@ -28,8 +37,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-export default async function BoutiquePage({ params }: Props) {
-  const { slug } = await params
+export default async function BoutiquePage({ params, searchParams }: Props) {
+  const slug = await getSlug(params, searchParams)
+
+  console.log('🏪 Boutique slug:', slug)
+
+  if (!slug) notFound()
 
   const { data: profile } = await supabase
     .from('profiles')
