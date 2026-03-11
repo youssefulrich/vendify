@@ -331,7 +331,7 @@ export default function ParametresPage() {
                   </div>
                 </div>
                 <div style={{ marginTop: 16 }} className="feature-list">
-                  {['Commandes illimitées', 'Produits illimités', 'Statistiques avancées', 'Export Excel des commandes', 'Support prioritaire'].map(f => (
+                  {['Commandes illimitées', 'Produits illimités', 'Boutique publique en ligne', 'Panier + commandes en ligne', 'Statistiques avancées', 'Export Excel des commandes', 'Support prioritaire'].map(f => (
                     <div key={f} className="feature-item">
                       <div className="feature-check" style={{ background: 'rgba(46,204,135,0.1)', color: '#2ecc87' }}>✓</div>
                       {f}
@@ -357,7 +357,7 @@ export default function ParametresPage() {
                 <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '16px 0' }} />
                 <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: '#c8cdd8', marginBottom: 12 }}>⚡ Passez Premium pour débloquer :</div>
                 <div className="feature-list" style={{ marginBottom: 20 }}>
-                  {['Commandes illimitées', 'Produits illimités', 'Statistiques avancées + graphiques', 'Export Excel'].map(f => (
+                  {['Commandes illimitées', 'Produits illimités', 'Boutique publique en ligne', 'Panier + commandes en ligne', 'Statistiques avancées + graphiques', 'Export Excel'].map(f => (
                     <div key={f} className="feature-item">
                       <div className="feature-check" style={{ background: 'rgba(245,166,35,0.08)', color: '#f5a623' }}>→</div>
                       {f}
