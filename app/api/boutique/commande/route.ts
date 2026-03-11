@@ -33,14 +33,14 @@ export async function POST(req: NextRequest) {
         statut: 'en_attente',
         mode_paiement: mode_paiement || 'wave',
         total,
-        note: note || `Commande via boutique en ligne`,
+        note: note || 'Commande via boutique en ligne',
       })
       .select()
       .single()
 
     if (orderError) throw orderError
 
-    // Créer les items
+    // Créer les order_items
     const orderItems = items.map((item: any) => ({
       order_id: order.id,
       product_id: item.product_id,
@@ -55,20 +55,39 @@ export async function POST(req: NextRequest) {
     // Décrémenter le stock
     for (const item of items) {
       const { data: product } = await supabase
-        .from('products')
-        .select('stock')
-        .eq('id', item.product_id)
-        .single()
-
+        .from('products').select('stock').eq('id', item.product_id).single()
       if (product) {
-        await supabase
-          .from('products')
+        await supabase.from('products')
           .update({ stock: Math.max(0, product.stock - item.quantite) })
           .eq('id', item.product_id)
       }
     }
 
-    return NextResponse.json({ success: true, order_id: order.id })
+    // Créer une notification pour le vendeur
+    const itemsDesc = items.map((i: any) => `${i.nom || 'Produit'} ×${i.quantite}`).join(', ')
+    await supabase.from('notifications').insert({
+      user_id: vendor_id,
+      type: 'nouvelle_commande',
+      title: `Nouvelle commande de ${client_nom}`,
+      message: `${itemsDesc} — Total: ${new Intl.NumberFormat('fr-FR').format(total)} FCFA`,
+      order_id: order.id,
+      read: false,
+    })
+
+    // Récupérer le phone du vendeur pour le WhatsApp
+    const { data: vendorProfile } = await supabase
+      .from('profiles').select('phone, shop_name').eq('id', vendor_id).single()
+
+    return NextResponse.json({
+      success: true,
+      order_id: order.id,
+      vendor_phone: vendorProfile?.phone || null,
+      vendor_shop: vendorProfile?.shop_name || '',
+      client_nom,
+      total,
+      items_desc: itemsDesc,
+      mode_paiement,
+    })
   } catch (e: any) {
     console.error('Commande error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
