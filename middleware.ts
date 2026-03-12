@@ -6,7 +6,10 @@ export async function middleware(request: NextRequest) {
 
   // Routes publiques — pas de vérification auth
   if (
+    pathname === '/' ||
     pathname.startsWith('/b/') ||
+    pathname.startsWith('/boutiques') ||
+    pathname.startsWith('/api/boutique/') ||
     pathname.startsWith('/api/premium/webhook') ||
     pathname.startsWith('/api/premium/checkout') ||
     pathname.startsWith('/login') ||
