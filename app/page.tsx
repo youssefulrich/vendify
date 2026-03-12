@@ -137,6 +137,9 @@ export default function LandingPage() {
         .floating-cards {
           position: absolute; inset: 0; pointer-events: none; overflow: hidden;
         }
+        @media (max-width: 900px) {
+          .floating-cards { display: none; }
+        }
         .floating-card {
           position: absolute; background: #161a22; border: 1px solid rgba(255,255,255,0.08);
           border-radius: 16px; padding: 14px 16px;
