@@ -22,14 +22,24 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
     if (error) {
       setError('Email ou mot de passe incorrect')
       setLoading(false)
       return
     }
-    router.push('/dashboard')
-    router.refresh()
+
+    // ✅ FIX : window.location.href force un vrai reload HTTP
+    // Le middleware Vercel reçoit le cookie de session correctement
+    // router.push() est trop rapide — le cookie n'est pas encore écrit
+    if (data.session) {
+      window.location.href = '/dashboard'
+    } else {
+      setError('Session non établie, réessayez.')
+      setLoading(false)
+    }
   }
 
   return (

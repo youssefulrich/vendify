@@ -17,6 +17,7 @@ export default function RegisterPage() {
   const [pays, setPays] = useState('CI')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [phone, setPhone] = useState('')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -54,12 +55,20 @@ export default function RegisterPage() {
         id: data.user.id,
         full_name: fullName,
         shop_name: shopName || 'Ma Boutique',
+        phone,
         pays,
       })
     }
 
-    router.push('/')
-    router.refresh()
+    // ✅ FIX : window.location.href force un reload HTTP complet
+    // Le middleware Vercel lit le cookie de session correctement
+    // router.push() trop rapide — cookie pas encore propagé
+    if (data.session) {
+      window.location.href = '/dashboard'
+    } else {
+      // Supabase email confirmation activée — rediriger vers login
+      window.location.href = '/login?registered=1'
+    }
   }
 
   const progress = ((step + 1) / 3) * 100
@@ -91,7 +100,6 @@ export default function RegisterPage() {
         .o3 { width: 300px; height: 300px; background: #4d8cff; top: 40%; left: 30%; animation-delay: -9s; }
         @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(20px,-15px) scale(1.04); } }
 
-        /* LEFT */
         .reg-left {
           position: relative; z-index: 1;
           display: flex; flex-direction: column; justify-content: space-between;
@@ -146,7 +154,6 @@ export default function RegisterPage() {
         .free-badge-text { font-size: 13px; color: #4a6055; }
         .free-badge-text strong { color: #2ecc87; }
 
-        /* RIGHT */
         .reg-right {
           position: relative; z-index: 1;
           display: flex; flex-direction: column;
@@ -161,22 +168,13 @@ export default function RegisterPage() {
         }
         .right-inner.visible { opacity: 1; transform: translateY(0); }
 
-        /* Progress */
         .progress-wrap { margin-bottom: 36px; }
-        .step-indicators {
-          display: flex; align-items: center; gap: 0;
-          margin-bottom: 12px;
-        }
-        .step-item {
-          display: flex; flex-direction: column; align-items: center;
-          gap: 6px; flex: 1; position: relative;
-        }
+        .step-indicators { display: flex; align-items: center; gap: 0; margin-bottom: 12px; }
+        .step-item { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; position: relative; }
         .step-circle {
           width: 32px; height: 32px; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
-          font-size: 12px; font-weight: 700;
-          transition: all 0.3s;
-          position: relative; z-index: 1;
+          font-size: 12px; font-weight: 700; transition: all 0.3s; position: relative; z-index: 1;
         }
         .step-circle.done { background: linear-gradient(135deg, #2ecc87, #00d4aa); color: #000; box-shadow: 0 4px 12px rgba(46,204,135,0.3); }
         .step-circle.active { background: linear-gradient(135deg, #f5a623, #ffcc6b); color: #000; box-shadow: 0 4px 12px rgba(245,166,35,0.3); }
@@ -184,103 +182,52 @@ export default function RegisterPage() {
         .step-label { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; color: #3a4255; text-transform: uppercase; }
         .step-label.active { color: #f5a623; }
         .step-label.done { color: #2ecc87; }
-
         .step-connector {
           position: absolute; top: 16px; left: 50%; right: -50%;
-          height: 1px; background: rgba(255,255,255,0.06);
-          z-index: 0; transition: background 0.3s;
+          height: 1px; background: rgba(255,255,255,0.06); z-index: 0; transition: background 0.3s;
         }
         .step-connector.done { background: rgba(46,204,135,0.3); }
-
-        .progress-bar {
-          height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden;
-        }
+        .progress-bar { height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
         .progress-fill {
           height: 100%; border-radius: 2px;
           background: linear-gradient(90deg, #2ecc87, #f5a623);
-          transition: width 0.4s ease;
-          box-shadow: 0 0 8px rgba(46,204,135,0.4);
+          transition: width 0.4s ease; box-shadow: 0 0 8px rgba(46,204,135,0.4);
         }
 
         .right-header { margin-bottom: 28px; }
-        .step-title {
-          font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800;
-          letter-spacing: -0.5px; color: #f0f2f7; margin-bottom: 6px;
-        }
+        .step-title { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color: #f0f2f7; margin-bottom: 6px; }
         .step-sub { font-size: 14px; color: #4a5470; font-weight: 300; }
 
         .field { margin-bottom: 16px; }
-        .field-label {
-          display: block; font-size: 11px; font-weight: 700;
-          letter-spacing: 1px; text-transform: uppercase; color: #4a5470; margin-bottom: 8px;
-        }
+        .field-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #4a5470; margin-bottom: 8px; }
         .input-wrap { position: relative; }
         .field-input {
-          width: 100%;
-          background: rgba(255,255,255,0.03);
-          border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 14px; padding: 14px 18px;
-          font-size: 14px; font-family: 'DM Sans', sans-serif;
-          color: #e8eaf0; outline: none;
-          transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-          -webkit-text-fill-color: #e8eaf0;
+          width: 100%; background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 14px 18px;
+          font-size: 14px; font-family: 'DM Sans', sans-serif; color: #e8eaf0; outline: none;
+          transition: border-color 0.2s, background 0.2s, box-shadow 0.2s; -webkit-text-fill-color: #e8eaf0;
         }
         .field-input::placeholder { color: #2e3448; }
-        .field-input:focus {
-          border-color: rgba(245,166,35,0.4);
-          background: rgba(245,166,35,0.03);
-          box-shadow: 0 0 0 4px rgba(245,166,35,0.06);
-        }
+        .field-input:focus { border-color: rgba(245,166,35,0.4); background: rgba(245,166,35,0.03); box-shadow: 0 0 0 4px rgba(245,166,35,0.06); }
         .field-input.has-icon { padding-right: 48px; }
-        .eye-btn {
-          position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
-          background: none; border: none; cursor: pointer; color: #3a4255;
-          font-size: 16px; padding: 4px; transition: color 0.2s; line-height: 1;
-        }
+        .eye-btn { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #3a4255; font-size: 16px; padding: 4px; transition: color 0.2s; line-height: 1; }
         .eye-btn:hover { color: #717a8f; }
 
-        .error-box {
-          background: rgba(255,94,94,0.06); border: 1px solid rgba(255,94,94,0.15);
-          border-radius: 12px; padding: 12px 16px; font-size: 13px;
-          color: #ff7070; margin-bottom: 18px;
-          display: flex; align-items: center; gap: 8px;
-        }
+        .error-box { background: rgba(255,94,94,0.06); border: 1px solid rgba(255,94,94,0.15); border-radius: 12px; padding: 12px 16px; font-size: 13px; color: #ff7070; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
 
         .btn-row { display: flex; gap: 10px; margin-top: 8px; }
-        .btn-back {
-          flex: 1; background: rgba(255,255,255,0.03);
-          border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 14px; padding: 14px;
-          font-size: 14px; font-weight: 500; color: #5a6480;
-          cursor: pointer; transition: all 0.2s;
-        }
+        .btn-back { flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 14px; font-size: 14px; font-weight: 500; color: #5a6480; cursor: pointer; transition: all 0.2s; }
         .btn-back:hover { border-color: rgba(255,255,255,0.12); color: #8892a4; }
-
-        .btn-next {
-          flex: 2; background: linear-gradient(135deg, #f5a623, #ffcc6b);
-          color: #000; border: none; border-radius: 14px; padding: 14px;
-          font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
-          cursor: pointer; transition: all 0.2s;
-          box-shadow: 0 4px 24px rgba(245,166,35,0.25);
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-        }
+        .btn-next { flex: 2; background: linear-gradient(135deg, #f5a623, #ffcc6b); color: #000; border: none; border-radius: 14px; padding: 14px; font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 24px rgba(245,166,35,0.25); display: flex; align-items: center; justify-content: center; gap: 8px; }
         .btn-next:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(245,166,35,0.35); }
         .btn-next:disabled { background: #1e2430; color: #3a4255; box-shadow: none; cursor: not-allowed; }
 
         .spinner { width: 16px; height: 16px; border: 2px solid rgba(0,0,0,0.2); border-top-color: #000; border-radius: 50%; animation: spin 0.7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .login-link {
-          text-align: center; margin-top: 20px;
-          font-size: 13px; color: #2e3448;
-        }
+        .login-link { text-align: center; margin-top: 20px; font-size: 13px; color: #2e3448; }
         .login-link a { color: #f5a623; font-weight: 600; text-decoration: none; }
-
-        .security-note {
-          display: flex; align-items: center; justify-content: center;
-          gap: 6px; margin-top: 16px; font-size: 11px; color: #1e2430;
-        }
-
+        .security-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; font-size: 11px; color: #1e2430; }
         select.field-input { cursor: pointer; }
         select.field-input option { background: #161a22; color: #e8eaf0; }
       `}</style>
@@ -290,14 +237,11 @@ export default function RegisterPage() {
       </div>
 
       <div className="reg-root">
-
-        {/* ── LEFT ── */}
         <div className="reg-left">
           <div className="logo">
             <div className="logo-icon">🛒</div>
             <span className="logo-text">Vendify</span>
           </div>
-
           <div className="left-mid">
             <div>
               <h1 className="left-title">Lancez votre<br /><span>boutique en ligne</span><br />en 2 minutes.</h1>
@@ -305,11 +249,10 @@ export default function RegisterPage() {
                 Rejoignez 180+ vendeurs africains qui gèrent leurs commandes, stocks et stats depuis Vendify.
               </p>
             </div>
-
             <div className="perks">
               {[
                 { icon: '📦', color: 'rgba(245,166,35,0.1)', title: 'Gestion des commandes', sub: 'WhatsApp, Instagram, TikTok et vente directe centralisés.' },
-                { icon: '📊', color: 'rgba(77,140,255,0.1)', title: 'Statistiques en temps réel', sub: 'Chiffre d\'affaires, bénéfices, top produits — tout en un coup d\'œil.' },
+                { icon: '📊', color: 'rgba(77,140,255,0.1)', title: 'Statistiques en temps réel', sub: "Chiffre d'affaires, bénéfices, top produits — tout en un coup d'œil." },
                 { icon: '📦', color: 'rgba(46,204,135,0.1)', title: 'Gestion des stocks', sub: 'Alertes de stock faible, historique et suivi automatique.' },
               ].map((p, i) => (
                 <div key={i} className="perk">
@@ -321,7 +264,6 @@ export default function RegisterPage() {
                 </div>
               ))}
             </div>
-
             <div className="free-badge">
               <span style={{ fontSize: 20 }}>🎁</span>
               <div className="free-badge-text">
@@ -330,15 +272,11 @@ export default function RegisterPage() {
               </div>
             </div>
           </div>
-
           <div style={{ fontSize: 12, color: '#1e2430' }}>© 2025 Vendify · Fait avec ❤️ pour l'Afrique</div>
         </div>
 
-        {/* ── RIGHT ── */}
         <div className="reg-right">
           <div className={`right-inner ${mounted ? 'visible' : ''}`}>
-
-            {/* Step indicators */}
             <div className="progress-wrap">
               <div className="step-indicators">
                 {STEPS.map((s, i) => (
@@ -358,7 +296,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Step headers */}
             <div className="right-header">
               {step === 0 && <><h2 className="step-title">Qui êtes-vous ? 👋</h2><p className="step-sub">Dites-nous comment vous appeler</p></>}
               {step === 1 && <><h2 className="step-title">Votre boutique 🏪</h2><p className="step-sub">Donnez un nom à votre espace de vente</p></>}
@@ -368,26 +305,26 @@ export default function RegisterPage() {
             <form onSubmit={nextStep}>
               {error && <div className="error-box"><span>⚠</span>{error}</div>}
 
-              {/* STEP 0 — Identity */}
               {step === 0 && (
                 <div className="field">
                   <label className="field-label">Votre nom complet</label>
-                  <input
-                    className="field-input" type="text" placeholder="Amara Koné"
-                    value={fullName} onChange={e => setFullName(e.target.value)} required autoFocus
-                  />
+                  <input className="field-input" type="text" placeholder="Amara Koné"
+                    value={fullName} onChange={e => setFullName(e.target.value)} required autoFocus />
                 </div>
               )}
 
-              {/* STEP 1 — Shop */}
               {step === 1 && (
                 <>
                   <div className="field">
                     <label className="field-label">Nom de la boutique</label>
-                    <input
-                      className="field-input" type="text" placeholder="Boutique Amara"
-                      value={shopName} onChange={e => setShopName(e.target.value)} required autoFocus
-                    />
+                    <input className="field-input" type="text" placeholder="Boutique Amara"
+                      value={shopName} onChange={e => setShopName(e.target.value)} required autoFocus />
+                  </div>
+                  <div className="field">
+                    <label className="field-label">Numéro WhatsApp</label>
+                    <input className="field-input" type="tel" placeholder="Ex: 0700000000"
+                      value={phone} onChange={e => setPhone(e.target.value)} required />
+                    <div style={{ fontSize: 11, color: '#2e3448', marginTop: 6 }}>Vos clients vous contacteront via ce numéro</div>
                   </div>
                   <div className="field">
                     <label className="field-label">Pays</label>
@@ -402,25 +339,20 @@ export default function RegisterPage() {
                 </>
               )}
 
-              {/* STEP 2 — Access */}
               {step === 2 && (
                 <>
                   <div className="field">
                     <label className="field-label">Adresse email</label>
-                    <input
-                      className="field-input" type="email" placeholder="vous@exemple.com"
-                      value={email} onChange={e => setEmail(e.target.value)} required autoFocus
-                    />
+                    <input className="field-input" type="email" placeholder="vous@exemple.com"
+                      value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
                   </div>
                   <div className="field">
                     <label className="field-label">Mot de passe</label>
                     <div className="input-wrap">
-                      <input
-                        className="field-input has-icon"
+                      <input className="field-input has-icon"
                         type={showPass ? 'text' : 'password'}
                         placeholder="••••••••" minLength={6}
-                        value={password} onChange={e => setPassword(e.target.value)} required
-                      />
+                        value={password} onChange={e => setPassword(e.target.value)} required />
                       <button type="button" className="eye-btn" onClick={() => setShowPass(p => !p)}>
                         {showPass ? '🙈' : '👁'}
                       </button>
@@ -432,9 +364,7 @@ export default function RegisterPage() {
 
               <div className="btn-row">
                 {step > 0 && (
-                  <button type="button" className="btn-back" onClick={() => setStep(s => s - 1)}>
-                    ← Retour
-                  </button>
+                  <button type="button" className="btn-back" onClick={() => setStep(s => s - 1)}>← Retour</button>
                 )}
                 <button type="submit" className="btn-next" disabled={loading}>
                   {loading ? (
@@ -451,7 +381,6 @@ export default function RegisterPage() {
             <div className="login-link">
               Déjà un compte ? <Link href="/login">Se connecter</Link>
             </div>
-
             <div className="security-note">
               <span>🔒</span>
               <span>Données sécurisées · Pas de spam · Résiliable à tout moment</span>
