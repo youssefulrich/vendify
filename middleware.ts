@@ -4,8 +4,8 @@ import { createServerClient } from '@supabase/ssr'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Routes publiques — pas de vérification auth
-  if (
+  // Routes vraiment publiques — on passe mais on refresh quand même les cookies
+  const isPublic =
     pathname === '/' ||
     pathname.startsWith('/b/') ||
     pathname.startsWith('/boutiques') ||
@@ -14,10 +14,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/premium/checkout') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/register')
-  ) {
-    return NextResponse.next()
-  }
 
+  // CRITIQUE : toujours créer supabaseResponse via createServerClient
+  // même pour les routes publiques — sinon les cookies de session
+  // ne sont jamais rafraîchis et l'utilisateur est déconnecté
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -37,8 +37,16 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  // Appel obligatoire — c'est lui qui rafraîchit le token de session
   const { data: { user } } = await supabase.auth.getUser()
 
+  // Route publique : laisser passer MAIS retourner supabaseResponse
+  // (pas NextResponse.next()) pour que les cookies soient bien écrits
+  if (isPublic) {
+    return supabaseResponse
+  }
+
+  // Route protégée : rediriger si pas connecté
   if (!user) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
