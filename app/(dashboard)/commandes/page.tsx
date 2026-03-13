@@ -36,6 +36,26 @@ const GRADIENTS = [
 ]
 const getGradient = (name: string) => GRADIENTS[name.charCodeAt(0) % GRADIENTS.length]
 
+// Normalise le numéro vers format international (sans +)
+// Supporte CI (+225), SN (+221), BJ (+229), CM (+237), TG (+228)
+function normalizePhone(raw: string): string {
+  if (!raw) return ''
+  let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
+  if (!p || p.length < 8) return ''
+  // Déjà en format international
+  const intlPrefixes = ['225','221','229','237','228','33','1']
+  for (const prefix of intlPrefixes) {
+    if (p.startsWith(prefix) && p.length >= 10) return p
+  }
+  // Format local ivoirien 10 chiffres commençant par 0
+  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
+  // Format local 8 chiffres (CI)
+  if (p.length === 8) return '225' + p
+  // Format local 10 chiffres sans le 0
+  if (p.length === 10) return '225' + p
+  return p
+}
+
 function buildWhatsAppMessage(order: Order, shopName: string) {
   const statut = STATUT_STYLE[order.statut]?.label || order.statut
   const canal  = CANAL_CONFIG[order.canal]?.label  || order.canal
@@ -54,10 +74,17 @@ function buildWhatsAppMessage(order: Order, shopName: string) {
     `Merci pour votre commande ! 🙏`,
     `_Géré via Vendify.ci_`,
   ].filter(Boolean).join('\n')
-  const phone = order.client_phone?.replace(/\D/g, '') || ''
-  return phone
-    ? `https://wa.me/${phone}?text=${encodeURIComponent(lines)}`
-    : `https://wa.me/?text=${encodeURIComponent(lines)}`
+
+  const phone = normalizePhone(order.client_phone || '')
+  const text  = encodeURIComponent(lines)
+
+  if (phone) {
+    // Lien direct vers le contact du client
+    return `https://wa.me/${phone}?text=${text}`
+  } else {
+    // Pas de numéro : ouvre WhatsApp avec le message pré-rempli, vendeur choisit le contact
+    return `https://wa.me/?text=${text}`
+  }
 }
 
 function generateHTMLReceipt(order: Order, shopName: string) {
@@ -229,7 +256,6 @@ export default function CommandesPage() {
         .cmd-search-row  { display:flex;gap:10px;margin-bottom:16px;align-items:center; }
         .cmd-search-wrap { position:relative;flex:1; }
 
-        /* Action buttons */
         .abtn { display:inline-flex;align-items:center;justify-content:center;gap:5px;border-radius:9px;padding:7px 12px;font-size:11px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;white-space:nowrap; }
         .abtn:hover { transform:translateY(-1px); }
         .abtn-wa  { background:rgba(37,211,102,0.08);color:#25d366;border:1px solid rgba(37,211,102,0.2); }
@@ -241,11 +267,9 @@ export default function CommandesPage() {
         .plk { display:inline-flex;align-items:center;gap:3px;background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.2);border-radius:20px;padding:1px 6px;font-size:9px;font-weight:700;color:#f5a623;margin-left:4px; }
         .spinner { width:11px;height:11px;border:2px solid rgba(245,166,35,0.2);border-top-color:#f5a623;border-radius:50%;animation:spin 0.7s linear infinite; }
 
-        /* Desktop table */
         .cmd-table-wrap { background:#161a22;border:1px solid rgba(255,255,255,0.06);border-radius:20px;overflow:hidden; }
         .cmd-table { width:100%;border-collapse:collapse; }
 
-        /* Mobile cards */
         .cmd-cards { display:none;flex-direction:column;gap:10px; }
         .cmd-card  { background:#161a22;border:1px solid rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;transition:border-color 0.2s; }
         .cmd-card:hover { border-color:rgba(255,255,255,0.1); }
@@ -256,7 +280,6 @@ export default function CommandesPage() {
         .cmd-card-actions { border-top:1px solid rgba(255,255,255,0.05);padding:11px 14px;display:flex;gap:8px;background:rgba(255,255,255,0.01);animation:fadeUp 0.2s ease; }
         .cmd-card-actions .abtn { flex:1;justify-content:center; }
 
-        /* ── RESPONSIVE ── */
         @media (max-width:767px) {
           .cmd-header  { flex-direction:column;align-items:stretch; }
           .cmd-title   { font-size:22px; }
@@ -268,7 +291,7 @@ export default function CommandesPage() {
         }
       `}</style>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <div className="cmd-header">
         <div>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
@@ -287,7 +310,7 @@ export default function CommandesPage() {
         </Link>
       </div>
 
-      {/* ── FILTERS ── */}
+      {/* FILTERS */}
       <div className="cmd-filters">
         <div className="cmd-filters-inner">
           {counts.map(s => (
@@ -306,7 +329,7 @@ export default function CommandesPage() {
         </div>
       </div>
 
-      {/* ── SEARCH + SORT ── */}
+      {/* SEARCH + SORT */}
       <div className="cmd-search-row">
         <div className="cmd-search-wrap">
           <span style={{position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',color:'#717a8f',fontSize:14}}>🔍</span>
@@ -325,7 +348,7 @@ export default function CommandesPage() {
         </div>
       </div>
 
-      {/* ── CONTENT ── */}
+      {/* CONTENT */}
       {loading ? (
         <div style={{padding:60,textAlign:'center',color:'#717a8f',fontSize:13}}>Chargement…</div>
       ) : filteredOrders.length===0 ? (
@@ -345,7 +368,7 @@ export default function CommandesPage() {
         </div>
       ) : (
         <>
-          {/* ══ MOBILE CARDS ══ */}
+          {/* MOBILE CARDS */}
           <div className="cmd-cards">
             {filteredOrders.map(order=>{
               const s=STATUT_STYLE[order.statut]||STATUT_STYLE.en_attente
@@ -406,7 +429,7 @@ export default function CommandesPage() {
             </div>
           </div>
 
-          {/* ══ DESKTOP TABLE ══ */}
+          {/* DESKTOP TABLE */}
           <div className="cmd-table-wrap">
             <table className="cmd-table">
               <thead>
@@ -478,7 +501,7 @@ export default function CommandesPage() {
         </>
       )}
 
-      {/* ── TOAST ── */}
+      {/* TOAST */}
       {toast.msg&&(
         <div style={{
           position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',
