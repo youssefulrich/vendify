@@ -212,6 +212,16 @@ export default function CommandesPage() {
     else { setSortField(field); setSortDir('desc') }
   }
 
+  function demanderLivraison(order: Order) {
+    const params = new URLSearchParams({
+      order_id:          order.id,
+      client_nom:        order.client_nom,
+      client_phone:      order.client_phone || '',
+      description:       `Commande ${order.client_nom}`,
+    })
+    window.location.href = `/livraisons?${params.toString()}`
+  }
+
   function shareWhatsApp(order: Order) {
     window.open(buildWhatsAppMessage(order, shopName), '_blank')
     showToast('Message WhatsApp ouvert !', 'wa')
@@ -414,6 +424,12 @@ export default function CommandesPage() {
                   {isExp&&(
                     <div className="cmd-card-actions">
                       <button className="abtn abtn-wa" onClick={()=>shareWhatsApp(order)}>💬 WhatsApp</button>
+                      {(order.statut === 'paye' || order.statut === 'en_attente') && (
+                        <button className="abtn" onClick={()=>demanderLivraison(order)}
+                          style={{background:'rgba(167,139,250,.08)',color:'#a78bfa',border:'1px solid rgba(167,139,250,.2)'}}>
+                          🛵 Livrer
+                        </button>
+                      )}
                       <button className={`abtn abtn-pdf${!isPremium?' locked':''}`} onClick={()=>handlePDF(order)}>
                         {generatingPdf===order.id?<><span className="spinner"/>...</>:isPremium?'📄 Reçu PDF':'🔒 PDF'}
                         {!isPremium&&<span className="plk">⚡ Premium</span>}
@@ -482,6 +498,12 @@ export default function CommandesPage() {
                       <td style={{padding:'13px 16px'}}>
                         <div style={{display:'flex',gap:6,alignItems:'center'}}>
                           <button className="abtn abtn-wa" onClick={()=>shareWhatsApp(order)}>💬 WhatsApp</button>
+                          {(order.statut === 'paye' || order.statut === 'en_attente') && (
+                            <button className="abtn" onClick={()=>demanderLivraison(order)}
+                              style={{background:'rgba(167,139,250,.08)',color:'#a78bfa',border:'1px solid rgba(167,139,250,.2)'}}>
+                              🛵 Livrer
+                            </button>
+                          )}
                           <button className={`abtn abtn-pdf${!isPremium?' locked':''}`} onClick={()=>handlePDF(order)}>
                             {generatingPdf===order.id?<><span className="spinner"/>...</>:isPremium?'📄 PDF':'🔒 PDF'}
                             {!isPremium&&<span className="plk">⚡</span>}

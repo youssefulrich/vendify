@@ -159,6 +159,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <NavLink href="/commandes" icon="◈" label="Commandes" />
           <NavLink href="/produits"  icon="◉" label="Produits" />
           <NavLink href="/stats"     icon="◎" label="Statistiques" />
+          <NavLink href="/livraisons" icon="🛵" label="Livraisons" />
 
           {isPremium && shopSlug && (
             <>

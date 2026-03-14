@@ -29,7 +29,7 @@ export default function LandingPage() {
   }, [])
 
   useEffect(() => {
-    const t = setInterval(() => setActiveFeature(f => (f + 1) % 3), 3500)
+    const t = setInterval(() => setActiveFeature(f => (f + 1) % 4), 3500)
     return () => clearInterval(t)
   }, [])
 
@@ -61,6 +61,19 @@ export default function LandingPage() {
       ],
     },
     {
+      icon: '🛵',
+      title: 'Livraison intégrée',
+      desc: 'Trouvez un livreur en quelques clics et suivez vos livraisons en temps réel. Les livreurs de votre ville voient vos demandes et vous contactent directement sur WhatsApp.',
+      color: '#a78bfa',
+      screen: [
+        { type: 'header', text: '🛵 Livraisons — En cours' },
+        { type: 'order', client: 'Fatou K.', amount: 'Cocody → Plateau', status: 'En route', color: '#2ecc87' },
+        { type: 'order', client: 'Aminata D.', amount: 'Yopougon → Marcory', status: 'Assigné', color: '#4d8cff' },
+        { type: 'order', client: 'Ibrahim T.', amount: 'Cocody → Abobo', status: 'Livré ✓', color: '#a78bfa' },
+        { type: 'cart', text: '+ Demander une livraison' },
+      ],
+    },
+    {
       icon: '📱',
       title: 'WhatsApp intégré & notifications',
       desc: 'Un clic pour envoyer le récapitulatif de commande au client sur WhatsApp. Suivi des statuts, relances automatiques, reçus PDF.',
@@ -86,6 +99,7 @@ export default function LandingPage() {
     { feature: 'Notifications automatiques', vendify: true, carnet: false, excel: false },
     { feature: 'Stats & CA', vendify: true, carnet: false, excel: true },
     { feature: 'Reçus PDF', vendify: true, carnet: false, excel: false },
+    { feature: 'Livraison intégrée', vendify: true, carnet: false, excel: false },
     { feature: 'Prix en FCFA', vendify: true, carnet: true, excel: true },
     { feature: 'Accessible depuis mobile', vendify: true, carnet: true, excel: false },
   ]
@@ -430,7 +444,7 @@ export default function LandingPage() {
         <div className="ticker-track">
           {[...Array(2)].map((_,i) => (
             <span key={i}>
-              {['🇨🇮 Vendeurs en Côte d\'Ivoire','🇸🇳 Disponible au Sénégal','💬 WhatsApp intégré','🛒 Boutique en 2 minutes','📊 Stats en temps réel','🇧🇯 Bénin & Cameroun','⚡ Premium à 3 000 FCFA/mois'].map((item, j) => (
+              {['🇨🇮 Vendeurs en Côte d\'Ivoire','🇸🇳 Disponible au Sénégal','💬 WhatsApp intégré','🛒 Boutique en 2 minutes','📊 Stats en temps réel','🛵 Livraison intégrée','🇧🇯 Bénin & Cameroun','⚡ Premium à 3 000 FCFA/mois'].map((item, j) => (
                 <span key={j} className="ticker-item">{item}<span className="ticker-dot"/></span>
               ))}
             </span>
@@ -449,6 +463,8 @@ export default function LandingPage() {
           <a href="#comment" className="nav-link">Comment ça marche</a>
           <a href="#tarifs" className="nav-link">Tarifs</a>
           <a href="/boutiques" className="nav-link">Boutiques</a>
+          <a href="/livraison" className="nav-link">🛵 Livraison</a>
+          <a href="/devenir-livreur" className="nav-link">Devenir livreur</a>
         </div>
         <div className="nav-right">
           <a href="/login" className="nav-login">Se connecter</a>
@@ -513,7 +529,7 @@ export default function LandingPage() {
 
         <p className="hero-sub">
           Vendez sur <strong>Instagram, WhatsApp et TikTok</strong> avec une vraie boutique professionnelle.<br/>
-          Gérez vos commandes, stocks et paiements — en FCFA, depuis votre téléphone.
+          Gérez vos commandes, stocks, livraisons et paiements — en FCFA, depuis votre téléphone.
         </p>
 
         <div className="hero-ctas">
@@ -590,7 +606,8 @@ export default function LandingPage() {
                   <div className="phone-screen-header-text">
                     {activeFeature === 0 && '🏪 Boutique Aminata Mode'}
                     {activeFeature === 1 && '📊 Dashboard'}
-                    {activeFeature === 2 && '💬 WhatsApp'}
+                    {activeFeature === 2 && '🛵 Livraisons'}
+                    {activeFeature === 3 && '💬 WhatsApp'}
                   </div>
                 </div>
                 <div className="phone-screen-body">
@@ -630,6 +647,27 @@ export default function LandingPage() {
                     ))}
                   </>}
                   {activeFeature === 2 && <>
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      {[
+                        {name:'Fatou K.',route:'Cocody → Plateau',status:'En route 🛵',color:'#2ecc87'},
+                        {name:'Aminata D.',route:'Yopougon → Marcory',status:'Assigné 🏍',color:'#4d8cff'},
+                        {name:'Ibrahim T.',route:'Cocody → Abobo',status:'Livré ✓',color:'#a78bfa'},
+                      ].map(o => (
+                        <div key={o.name} className="screen-order">
+                          <div className="screen-order-dot" style={{background:o.color}}/>
+                          <div style={{flex:1}}>
+                            <div className="screen-order-name">{o.name}</div>
+                            <div style={{fontSize:9,color:'#404550'}}>{o.route}</div>
+                          </div>
+                          <div className="screen-order-badge" style={{background:`${o.color}18`,color:o.color}}>{o.status}</div>
+                        </div>
+                      ))}
+                      <div style={{marginTop:6,background:'linear-gradient(135deg,#a78bfa,#c4b5fd)',borderRadius:10,padding:'10px',textAlign:'center',fontSize:10,fontWeight:700,color:'#000'}}>
+                        + Demander une livraison
+                      </div>
+                    </div>
+                  </>}
+                  {activeFeature === 3 && <>
                     <div style={{fontSize:10,color:'#404550',marginBottom:8}}>Message envoyé à Fatou Koné 💬</div>
                     <div className="screen-wa">
                       {['🛒 Nouvelle commande !','👤 Fatou Koné','📦 Robe Wax x1 + Boubou x1','💰 Total : 30 500 FCFA','✅ Statut : Confirmé','📍 Livraison : Cocody, Abidjan'].map((l,i) => (
@@ -805,6 +843,7 @@ export default function LandingPage() {
                   'Prix promotionnels',
                   'Statistiques avancées',
                   'Reçus PDF',
+                  'Livraisons intégrées',
                   'Support prioritaire WhatsApp',
                 ].map((f,i) => (
                   <div key={i} className="plan-feat">
@@ -818,6 +857,55 @@ export default function LandingPage() {
           </div>
         </div>
       </div>
+
+      {/* CTA LIVREUR */}
+      <div style={{background:'#060708',borderTop:'1px solid rgba(255,255,255,0.04)',padding:'80px 24px'}}>
+        <div style={{maxWidth:860,margin:'0 auto',display:'grid',gridTemplateColumns:'1fr 1fr',gap:48,alignItems:'center'}} className="livreur-cta-grid">
+          <div>
+            <div className="section-label">🛵 Pour les livreurs</div>
+            <h2 className="section-h2" style={{marginBottom:16}}>Trouvez des courses<br/><em>près de chez vous</em></h2>
+            <p style={{fontSize:15,color:'#5a6070',lineHeight:1.75,marginBottom:28}}>
+              Inscrivez-vous gratuitement comme livreur sur Vendify. Recevez des demandes de livraison dans votre quartier et augmentez vos revenus à votre rythme.
+            </p>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:32}}>
+              {[
+                'Aucun abonnement — 100% gratuit',
+                'Choisissez vos courses librement',
+                'Contactez directement les vendeurs via WhatsApp',
+                'Valable à Abidjan, Bouaké, Dakar et plus',
+              ].map((item, i) => (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:10,fontSize:14,color:'#a0a8b8'}}>
+                  <div style={{width:20,height:20,borderRadius:6,background:'rgba(167,139,250,0.1)',border:'1px solid rgba(167,139,250,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,color:'#a78bfa',flexShrink:0}}>✓</div>
+                  {item}
+                </div>
+              ))}
+            </div>
+            <a href="/devenir-livreur" style={{display:'inline-flex',alignItems:'center',gap:9,background:'linear-gradient(135deg,#a78bfa,#c4b5fd)',color:'#000',borderRadius:12,padding:'14px 26px',fontSize:15,fontWeight:700,textDecoration:'none',transition:'all 0.2s',boxShadow:'0 6px 24px rgba(167,139,250,0.3)'}}>
+              🛵 Devenir livreur gratuitement
+            </a>
+          </div>
+          <div style={{background:'#0d0f11',border:'1px solid rgba(167,139,250,0.15)',borderRadius:24,padding:28}}>
+            <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:16,fontWeight:800,marginBottom:20,color:'#edeae4'}}>
+              Comment ça marche
+            </div>
+            {[
+              {n:'1',icon:'✏️',title:"S'inscrire en 2 min",desc:'Renseignez votre zone, votre moyen de transport et vos tarifs.'},
+              {n:'2',icon:'📍',title:'Voir les courses dispo',desc:'Accédez à votre lien personnel et voyez les livraisons dans votre ville.'},
+              {n:'3',icon:'💬',title:'Accepter & contacter',desc:"Un clic pour accepter. WhatsApp s'ouvre automatiquement avec le vendeur."},
+            ].map(s => (
+              <div key={s.n} style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:20}}>
+                <div style={{width:36,height:36,borderRadius:10,background:'rgba(167,139,250,0.1)',border:'1px solid rgba(167,139,250,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{s.icon}</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:'#edeae4',marginBottom:3}}>{s.title}</div>
+                  <div style={{fontSize:12,color:'#404550',lineHeight:1.5}}>{s.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <style>{`.livreur-cta-grid { grid-template-columns: 1fr 1fr !important; } @media(max-width:767px){.livreur-cta-grid{grid-template-columns:1fr!important;}}`}</style>
 
       {/* CTA FINAL */}
       <div style={{padding:'80px 0'}}>
@@ -861,6 +949,8 @@ export default function LandingPage() {
             <a href="/register" className="footer-lnk">S'inscrire</a>
             <a href="/dashboard" className="footer-lnk">Dashboard</a>
             <a href="/premium" className="footer-lnk">Premium ⚡</a>
+            <a href="/devenir-livreur" className="footer-lnk">🛵 Devenir livreur</a>
+            <a href="/livraison" className="footer-lnk">Demander une livraison</a>
           </div>
           <div>
             <div className="footer-col-title">Pays</div>

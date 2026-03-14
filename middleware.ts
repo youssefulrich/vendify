@@ -13,7 +13,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/premium/webhook') ||
     pathname.startsWith('/api/premium/checkout') ||
     pathname.startsWith('/login') ||
-    pathname.startsWith('/register')
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/livraison') ||
+    pathname.startsWith('/devenir-livreur') ||
+    pathname.startsWith('/livreur/') 
 
   // CRITIQUE : toujours créer supabaseResponse via createServerClient
   // même pour les routes publiques — sinon les cookies de session
