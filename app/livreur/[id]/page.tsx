@@ -187,7 +187,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
 
         .page{max-width:680px;margin:0 auto;padding:24px 20px 80px}
 
-        .hero-card{background:linear-gradient(135deg,#0d1117,#131b12);border:1px solid rgba(245,166,35,.15);border-radius:20px;padding:24px;margin-bottom:20px;position:relative;overflow:hidden}
+        .hero-card{background:linear-gradient(135deg,#0d1117,#131b12);border:1px solid rgba(245,166,35,.15);border-radius:20px;padding:24px;margin-bottom:20px;position:relative;overflow:visible}
         .hero-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 80% 50%,rgba(245,166,35,.06) 0%,transparent 70%)}
         .hero-name{font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;margin-bottom:4px}
         .hero-meta{font-size:13px;color:#5a6070;margin-bottom:16px}
@@ -284,7 +284,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           ) : (
             <button
               onClick={subscribed ? unsubscribe : subscribe}
-              disabled={pushLoading || !swReady}
+              disabled={false}
               style={{
                 padding:'8px 14px', borderRadius:10, fontSize:12, fontWeight:700,
                 cursor: pushLoading ? 'wait' : 'pointer', flexShrink:0, border:'none',
