@@ -1,10 +1,8 @@
 'use client'
 
 import React from 'react'
-
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 
 const supabase = createClient()
 
@@ -14,6 +12,7 @@ function normalizePhone(raw: string) {
   if (!p || p.length < 8) return ''
   if (p.length >= 11) return p
   if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
+  if (p.length === 9) return '2250' + p
   if (p.length === 8) return '225' + p
   return p
 }
@@ -27,22 +26,25 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; 
 
 export default function LivreurDashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: driverId } = React.use(params)
-  const [driver, setDriver]         = useState<any>(null)
+  const [driver, setDriver]           = useState<any>(null)
   const [disponibles, setDisponibles] = useState<any[]>([])
-  const [mesCourses, setMesCourses] = useState<any[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [driverVille, setDriverVille] = useState('')
-  const [notFound, setNotFound]     = useState(false)
-  const [activeTab, setActiveTab]   = useState<'dispo' | 'mes-courses'>('dispo')
-  const [accepting, setAccepting]   = useState<string | null>(null)
-
-  const { permission, subscribed, loading: pushLoading, swReady, subscribe, unsubscribe } =
-    usePushNotifications(driverId, driverVille)
+  const [mesCourses, setMesCourses]   = useState<any[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [notFound, setNotFound]       = useState(false)
+  const [activeTab, setActiveTab]     = useState<'dispo' | 'mes-courses'>('dispo')
+  const [accepting, setAccepting]     = useState<string | null>(null)
+  const [lastUpdate, setLastUpdate]   = useState<Date>(new Date())
 
   useEffect(() => {
     loadAll()
 
-    // Realtime — nouvelles livraisons disponibles
+    // Polling toutes les 10s pour mobile
+    const interval = setInterval(() => {
+      loadAll()
+      setLastUpdate(new Date())
+    }, 10000)
+
+    // Realtime Supabase
     const channel = supabase
       .channel(`livreur-${driverId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, () => {
@@ -50,11 +52,13 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
   }, [driverId])
 
   async function loadAll() {
-    // Charger le profil livreur
     const { data: drv } = await supabase
       .from('delivery_drivers')
       .select('*')
@@ -63,9 +67,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
 
     if (!drv) { setNotFound(true); setLoading(false); return }
     setDriver(drv)
-    setDriverVille(drv.ville || '')
 
-    // Livraisons disponibles dans sa ville (pending, pas encore assignées)
     const { data: dispo } = await supabase
       .from('deliveries')
       .select('*, orders(client_nom, total)')
@@ -73,7 +75,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
       .eq('ville', drv.ville)
       .order('created_at', { ascending: false })
 
-    // Mes courses en cours / terminées
     const { data: courses } = await supabase
       .from('deliveries')
       .select('*, orders(client_nom, total)')
@@ -88,35 +89,20 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
   async function accepterLivraison(livraison: any) {
     setAccepting(livraison.id)
 
-    // Assigner le livreur + passer en accepted
     const { error } = await (supabase as any).from('deliveries').update({
-      driver_id:   driverId,
-      status:      'accepted',
-      accepted_at: new Date().toISOString(),
+      driver_id:     driverId,
+      status:        'accepted',
+      accepted_at:   new Date().toISOString(),
       whatsapp_link: null,
-    }).eq('id', livraison.id).eq('status', 'pending') // sécurité : éviter double accept
+    }).eq('id', livraison.id).eq('status', 'pending')
 
     if (!error) {
-      // Notifier le vendeur sur WhatsApp
-      // On récupère le phone du vendeur via profiles
-      const { data: vendor } = await supabase
-        .from('profiles')
-        .select('phone, shop_name')
-        .eq('id', livraison.vendor_id)
-        .single()
-
-      if (vendor?.phone) {
-        const vPhone = normalizePhone(vendor.phone)
-        const msg = encodeURIComponent(
-          `Bonjour ! 👋\n\nJe suis *${driver.full_name}*, votre livreur Vendify.\n\n` +
-          `J'ai accepté votre livraison :\n` +
-          `📦 ${livraison.description || 'Colis'}\n` +
-          `📍 Récupération : ${livraison.adresse_pickup}\n` +
-          `🏠 Livraison : ${livraison.adresse_livraison}\n\n` +
-          `Je vous contacte dès que je suis en route. 🛵`
-        )
-        window.open(`https://wa.me/${vPhone}?text=${msg}`, '_blank')
-      }
+      // Notifier le vendeur via Green API (automatique)
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'livraison_acceptee', id: livraison.id, driverId })
+      }).catch(() => null)
 
       await loadAll()
       setActiveTab('mes-courses')
@@ -132,26 +118,16 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
 
     await (supabase as any).from('deliveries').update(updates).eq('id', livraisonId)
 
-    // Notifier le vendeur à chaque changement de statut
-    const { data: vendor } = await supabase
-      .from('profiles').select('phone').eq('id', livraison.vendor_id).single()
-
-    if (vendor?.phone) {
-      const vPhone = normalizePhone(vendor.phone)
-      const msgs: Record<string, string> = {
-        picked_up:  `📦 *Colis récupéré !*\n\nBonjour, j'ai récupéré le colis chez vous. Je me dirige maintenant vers votre client. — ${driver.full_name} 🛵`,
-        in_transit: `🛵 *En route !*\n\nJe suis en route vers votre client avec le colis. — ${driver.full_name}`,
-        delivered:  `✅ *Livraison effectuée !*\n\nLe colis a bien été remis à votre client. Merci de faire confiance à Vendify Livraisons ! — ${driver.full_name}`,
-      }
-      if (msgs[newStatus]) {
-        window.open(`https://wa.me/${vPhone}?text=${encodeURIComponent(msgs[newStatus])}`, '_blank')
-      }
-    }
+    // Notifier le vendeur via Green API (automatique)
+    await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'livraison_statut', id: livraisonId, statut: newStatus, driverId })
+    }).catch(() => null)
 
     await loadAll()
   }
 
-  // ── NOT FOUND ──
   if (notFound) return (
     <div style={{ minHeight: '100vh', background: '#070809', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, fontFamily: 'sans-serif' }}>
       <div style={{ fontSize: 56 }}>❓</div>
@@ -168,7 +144,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
   )
 
   const enCours = mesCourses.filter(c => !['delivered', 'cancelled'].includes(c.status))
-  const terminees = mesCourses.filter(c => c.status === 'delivered')
 
   return (
     <>
@@ -188,7 +163,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
         .page{max-width:680px;margin:0 auto;padding:24px 20px 80px}
 
         .hero-card{background:linear-gradient(135deg,#0d1117,#131b12);border:1px solid rgba(245,166,35,.15);border-radius:20px;padding:24px;margin-bottom:20px;position:relative;overflow:visible}
-        .hero-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 80% 50%,rgba(245,166,35,.06) 0%,transparent 70%)}
+        .hero-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 80% 50%,rgba(245,166,35,.06) 0%,transparent 70%);border-radius:20px;pointer-events:none}
         .hero-name{font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;margin-bottom:4px}
         .hero-meta{font-size:13px;color:#5a6070;margin-bottom:16px}
         .hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -235,6 +210,8 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
         .empty-title{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;color:#303540;margin-bottom:6px}
         .empty-sub{font-size:12px;color:#252830}
 
+        .update-indicator{font-size:10px;color:#252830;text-align:center;margin-bottom:8px}
+
         @media(max-width:480px){
           .route{grid-template-columns:1fr;grid-template-rows:auto auto auto}
           .route-point:first-child,.route-point:last-child{border-radius:10px;border:1px solid rgba(255,255,255,.06)}
@@ -243,7 +220,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
         }
       `}</style>
 
-      {/* ── TOPBAR ── */}
+      {/* TOPBAR */}
       <div className="topbar">
         <span className="tb-brand">🛵 Vendify Livraisons</span>
         <div className="tb-driver">
@@ -254,51 +231,34 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
 
       <div className="page">
 
-        {/* ── HERO PROFIL ── */}
+        {/* HERO PROFIL */}
         <div className="hero-card">
-          <div className="hero-name">{driver.full_name} {driver.moyen === 'moto' ? '🏍' : driver.moyen === 'voiture' ? '🚗' : '🛺'}</div>
-          <div className="hero-meta">{driver.ville} · Tarif min. {new Intl.NumberFormat('fr-FR').format(driver.tarif_base)} FCFA</div>
-          {/* ── BANDEAU NOTIFICATIONS ── */}
-        <div style={{
-          background: subscribed
-            ? 'rgba(46,204,135,.08)' : 'rgba(245,166,35,.06)',
-          border: `1px solid ${subscribed ? 'rgba(46,204,135,.2)' : 'rgba(245,166,35,.15)'}`,
-          borderRadius: 14, padding: '12px 16px', marginBottom: 16,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12
-        }}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:20}}>{subscribed ? '🔔' : '🔕'}</span>
+          <div className="hero-name">
+            {driver.full_name} {driver.moyen === 'moto' ? '🏍' : driver.moyen === 'voiture' ? '🚗' : '🛺'}
+          </div>
+          <div className="hero-meta">
+            {driver.ville} · Tarif min. {new Intl.NumberFormat('fr-FR').format(driver.tarif_base)} FCFA
+          </div>
+
+          {/* BANDEAU NOTIFICATIONS WhatsApp */}
+          <div style={{
+            background: 'rgba(37,211,102,.06)',
+            border: '1px solid rgba(37,211,102,.15)',
+            borderRadius: 14, padding: '12px 16px', marginBottom: 16,
+            display: 'flex', alignItems: 'center', gap: 10
+          }}>
+            <span style={{ fontSize: 20 }}>💬</span>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color: subscribed ? '#2ecc87' : '#f5a623'}}>
-                {subscribed ? 'Notifications activées' : 'Activer les notifications'}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#25d366' }}>
+                Notifications WhatsApp activées
               </div>
-              <div style={{fontSize:11,color:'#404550',marginTop:2}}>
-                {subscribed
-                  ? "Vous serez alerté dès qu'une livraison est disponible"
-                  : "Recevez une alerte dès qu'une livraison arrive dans votre zone"}
+              <div style={{ fontSize: 11, color: '#404550', marginTop: 2 }}>
+                Vous recevrez un message WhatsApp dès qu'une livraison est disponible
               </div>
             </div>
           </div>
-          {!('Notification' in (typeof window !== 'undefined' ? window : {})) ? (
-            <div style={{fontSize:11,color:'#404550'}}>Non supporté</div>
-          ) : (
-            <button
-              onClick={subscribed ? unsubscribe : subscribe}
-              disabled={false}
-              style={{
-                padding:'8px 14px', borderRadius:10, fontSize:12, fontWeight:700,
-                cursor: pushLoading ? 'wait' : 'pointer', flexShrink:0, border:'none',
-                background: subscribed
-                  ? 'rgba(255,94,94,.1)' : 'linear-gradient(135deg,#f5a623,#ffcc6b)',
-                color: subscribed ? '#ff7070' : '#000',
-                opacity: pushLoading || !swReady ? 0.6 : 1,
-              }}>
-              {pushLoading ? '...' : subscribed ? 'Désactiver' : 'Activer'}
-            </button>
-          )}
-        </div>
 
-        <div className="hero-stats">
+          <div className="hero-stats">
             <div className="hero-stat">
               <div className="hero-stat-num">{driver.nb_livraisons}</div>
               <div className="hero-stat-lbl">Livraisons</div>
@@ -314,6 +274,11 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </div>
         </div>
 
+        {/* Indicateur de mise à jour */}
+        <div className="update-indicator">
+          Mis à jour à {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · Actualisation auto toutes les 10s
+        </div>
+
         {/* Notification nouvelles livraisons */}
         {disponibles.length > 0 && activeTab === 'dispo' && (
           <div className="notif-banner">
@@ -322,7 +287,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </div>
         )}
 
-        {/* ── TABS ── */}
+        {/* TABS */}
         <div className="tabs">
           <button className={`tab${activeTab === 'dispo' ? ' active' : ''}`} onClick={() => setActiveTab('dispo')}>
             Disponibles
@@ -334,13 +299,13 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </button>
         </div>
 
-        {/* ── LIVRAISONS DISPONIBLES ── */}
+        {/* LIVRAISONS DISPONIBLES */}
         {activeTab === 'dispo' && (
           disponibles.length === 0 ? (
             <div className="empty">
               <div className="empty-icon">📭</div>
               <div className="empty-title">Aucune livraison disponible</div>
-              <div className="empty-sub">Cette page se met à jour automatiquement dès qu'une nouvelle livraison est disponible dans votre zone</div>
+              <div className="empty-sub">Vous recevrez un WhatsApp dès qu'une livraison arrive dans votre zone</div>
             </div>
           ) : disponibles.map((liv, i) => (
             <div key={liv.id} className="liv-card" style={{ animationDelay: `${i * 0.05}s` }}>
@@ -386,7 +351,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           ))
         )}
 
-        {/* ── MES COURSES ── */}
+        {/* MES COURSES */}
         {activeTab === 'mes-courses' && (
           mesCourses.length === 0 ? (
             <div className="empty">
