@@ -58,6 +58,19 @@ export default function LivraisonPubliquePage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    // Pré-remplir depuis les query params (ex: depuis /commandes)
+    const order_id    = params.get('order_id')
+    const client_nom  = params.get('client_nom')
+    const client_phone = params.get('client_phone')
+    const description = params.get('description')
+    if (client_nom || client_phone || description) {
+      setForm(f => ({
+        ...f,
+        client_nom:  client_nom  || f.client_nom,
+        client_phone: client_phone || f.client_phone,
+        description: description || f.description,
+      }))
+    }
     const ref = params.get('ref')
     if (ref) {
       setTrackRef(ref)
@@ -83,11 +96,14 @@ export default function LivraisonPubliquePage() {
     if (!form.client_nom || !form.client_phone || !form.adresse_pickup || !form.adresse_livraison || !form.ville) return
     setSubmitting(true)
 
+    // Récupérer l'utilisateur connecté (vendeur)
+    const { data: { user } } = await supabase.auth.getUser()
+
     const reference = `LIV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 
     const { data, error } = await (supabase as any).from('deliveries').insert({
       ...form,
-      vendor_id: null,
+      vendor_id: user?.id || null,
       reference,
       status: 'pending',
     }).select().single()
@@ -95,7 +111,6 @@ export default function LivraisonPubliquePage() {
     if (!error && data) {
       setLivraison(data)
 
-      // Charger les livreurs + notifier via Green API en parallèle
       const [{ data: drv }] = await Promise.all([
         supabase.from('delivery_drivers').select('*')
           .eq('actif', true).eq('ville', form.ville)
@@ -196,7 +211,6 @@ export default function LivraisonPubliquePage() {
         .container{max-width:560px;margin:0 auto;padding:0 20px 80px}
 
         .card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:24px;margin-bottom:16px;animation:slideUp .4s ease}
-
         .section-title{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;font-weight:800;margin-bottom:4px}
         .section-sub{font-size:13px;color:#404550;margin-bottom:20px}
 
@@ -403,7 +417,8 @@ export default function LivraisonPubliquePage() {
                 <div style={{ fontSize: 13, color: '#252830', marginBottom: 20 }}>
                   Les livreurs de votre zone ont été alertés via WhatsApp. L'un d'eux acceptera bientôt.
                 </div>
-                <button onClick={() => setStep('suivi')} style={{ padding: '11px 24px', background: 'linear-gradient(135deg,#f5a623,#ffcc6b)', color: '#000', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                <button onClick={() => setStep('suivi')}
+                  style={{ padding: '11px 24px', background: 'linear-gradient(135deg,#f5a623,#ffcc6b)', color: '#000', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   Suivre ma livraison →
                 </button>
               </div>

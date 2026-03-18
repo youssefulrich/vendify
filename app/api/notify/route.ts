@@ -9,10 +9,23 @@ const supabase = createClient(
 function normalizePhone(raw: string) {
   if (!raw) return ''
   let p = raw.replace(/\D/g, '')
-  if (p.length === 8)  return '225' + p
-  if (p.length === 9)  return '2250' + p
-  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
-  if (p.length === 10 && !p.startsWith('225')) return '225' + p
+  if (!p || p.length < 8) return ''
+
+  // Déjà au bon format international CI : 2250XXXXXXXXX (13 chiffres)
+  if (p.length === 13 && p.startsWith('2250')) return p
+
+  // Format +225 XXXXXXXXXX (12 chiffres sans le 0)
+  if (p.length === 12 && p.startsWith('225')) return '2250' + p.slice(3)
+
+  // Format local 0XXXXXXXXX (10 chiffres avec 0)
+  if (p.length === 10 && p.startsWith('0')) return '225' + p
+
+  // Format local sans 0 (9 chiffres)
+  if (p.length === 9) return '2250' + p
+
+  // Format local 8 chiffres
+  if (p.length === 8) return '22505' + p
+
   return p
 }
 
