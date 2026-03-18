@@ -10,10 +10,13 @@ function normalizePhone(raw: string) {
   if (!raw) return ''
   let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
   if (!p || p.length < 8) return ''
-  if (p.length >= 11) return p
-  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
-  if (p.length === 9) return '2250' + p
-  if (p.length === 8) return '225' + p
+
+  if (p.length === 13 && p.startsWith('2250')) return p          // déjà bon
+  if (p.length === 12 && p.startsWith('225')) return '225' + '0' + p.slice(3) // 225XXXXXXXXX → 2250XXXXXXXXX
+  if (p.length === 10 && p.startsWith('0')) return '225' + p     // 0715469666 → 2250715469666
+  if (p.length === 9) return '2250' + p                          // 715469666 → 2250715469666
+  if (p.length === 8) return '22505' + p
+
   return p
 }
 
@@ -38,13 +41,11 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
   useEffect(() => {
     loadAll()
 
-    // Polling toutes les 10s pour mobile
     const interval = setInterval(() => {
       loadAll()
       setLastUpdate(new Date())
     }, 10000)
 
-    // Realtime Supabase
     const channel = supabase
       .channel(`livreur-${driverId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, () => {
@@ -97,16 +98,19 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
     }).eq('id', livraison.id).eq('status', 'pending')
 
     if (!error) {
-      // Notifier le vendeur via Green API (automatique)
       await fetch('/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'livraison_acceptee', id: livraison.id, driverId })
       }).catch(() => null)
 
+      await new Promise(resolve => setTimeout(resolve, 500))
       await loadAll()
       setActiveTab('mes-courses')
+    } else {
+      alert('Erreur lors de l\'acceptation. Réessayez.')
     }
+
     setAccepting(null)
   }
 
@@ -118,7 +122,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
 
     await (supabase as any).from('deliveries').update(updates).eq('id', livraisonId)
 
-    // Notifier le vendeur via Green API (automatique)
     await fetch('/api/notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -240,7 +243,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
             {driver.ville} · Tarif min. {new Intl.NumberFormat('fr-FR').format(driver.tarif_base)} FCFA
           </div>
 
-          {/* BANDEAU NOTIFICATIONS WhatsApp */}
           <div style={{
             background: 'rgba(37,211,102,.06)',
             border: '1px solid rgba(37,211,102,.15)',
@@ -274,12 +276,10 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </div>
         </div>
 
-        {/* Indicateur de mise à jour */}
         <div className="update-indicator">
-          Mis à jour à {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · Actualisation auto toutes les 10s
+          Mis à jour à {lastUpdate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · Auto toutes les 10s
         </div>
 
-        {/* Notification nouvelles livraisons */}
         {disponibles.length > 0 && activeTab === 'dispo' && (
           <div className="notif-banner">
             <div className="notif-dot" />
@@ -287,7 +287,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </div>
         )}
 
-        {/* TABS */}
         <div className="tabs">
           <button className={`tab${activeTab === 'dispo' ? ' active' : ''}`} onClick={() => setActiveTab('dispo')}>
             Disponibles
@@ -299,7 +298,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           </button>
         </div>
 
-        {/* LIVRAISONS DISPONIBLES */}
         {activeTab === 'dispo' && (
           disponibles.length === 0 ? (
             <div className="empty">
@@ -351,7 +349,6 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           ))
         )}
 
-        {/* MES COURSES */}
         {activeTab === 'mes-courses' && (
           mesCourses.length === 0 ? (
             <div className="empty">
