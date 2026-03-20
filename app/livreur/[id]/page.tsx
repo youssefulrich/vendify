@@ -1,401 +1,408 @@
 'use client'
 
-import React from 'react'
-import { normalizePhone } from '@/lib/utils/normalizePhone'
-
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const supabase = createClient()
 
-// normalizePhone importé depuis lib/utils/normalizePhone
-
-const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; icon: string; next?: string; nextLabel?: string }> = {
-  accepted:   { label: 'Acceptée',       color: '#4d8cff', bg: 'rgba(77,140,255,.1)',  icon: '🏍', next: 'picked_up',  nextLabel: 'Confirmer récupération' },
-  picked_up:  { label: 'Colis récupéré', color: '#a78bfa', bg: 'rgba(167,139,250,.1)', icon: '📦', next: 'in_transit', nextLabel: 'Je suis en route' },
-  in_transit: { label: 'En route',       color: '#2ecc87', bg: 'rgba(46,204,135,.1)',  icon: '🛵', next: 'delivered',  nextLabel: 'Confirmer livraison' },
-  delivered:  { label: 'Livré ✓',        color: '#2ecc87', bg: 'rgba(46,204,135,.1)',  icon: '✅' },
+function fCFA(n: number) {
+  return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA'
 }
 
-export default function LivreurDashboardPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: driverId } = React.use(params)
-  const [driver, setDriver]         = useState<any>(null)
-  const [disponibles, setDisponibles] = useState<any[]>([])
-  const [mesCourses, setMesCourses] = useState<any[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [driverVille, setDriverVille] = useState('')
-  const [notFound, setNotFound]     = useState(false)
-  const [activeTab, setActiveTab]   = useState<'dispo' | 'mes-courses'>('dispo')
-  const [accepting, setAccepting]   = useState<string | null>(null)
+function normalizePhone(raw: string): string {
+  if (!raw) return ''
+  let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
+  if (!p || p.length < 8) return ''
+  if (p.startsWith('2250') && p.length === 13) return p
+  if (p.startsWith('225') && p.length === 12) return '2250' + p.slice(3)
+  if (p.startsWith('0') && p.length === 10) return '225' + p
+  if (p.length === 9) return '2250' + p
+  return p
+}
 
-  const [notifBanner, setNotifBanner] = useState(true)
-  const [waToOpen, setWaToOpen] = useState<string | null>(null)
+const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  pending:    { label: 'En attente',       color: '#f5a623', bg: 'rgba(245,166,35,.1)',   icon: '⏳' },
+  accepted:   { label: 'Livreur assigné',  color: '#4d8cff', bg: 'rgba(77,140,255,.1)',   icon: '🏍' },
+  picked_up:  { label: 'Colis récupéré',   color: '#a78bfa', bg: 'rgba(167,139,250,.1)',  icon: '📦' },
+  in_transit: { label: 'En route',         color: '#2ecc87', bg: 'rgba(46,204,135,.1)',   icon: '🛵' },
+  delivered:  { label: 'Livré',            color: '#2ecc87', bg: 'rgba(46,204,135,.1)',   icon: '✅' },
+  cancelled:  { label: 'Annulé',           color: '#ff5e5e', bg: 'rgba(255,94,94,.1)',    icon: '❌' },
+}
+
+const POIDS_OPTIONS = [
+  { value: 'leger',  label: 'Léger',  sub: '< 2 kg', icon: '🪶' },
+  { value: 'moyen',  label: 'Moyen',  sub: '2–10 kg', icon: '📦' },
+  { value: 'lourd',  label: 'Lourd',  sub: '> 10 kg', icon: '🏋️' },
+]
+
+const MOYEN_ICONS: Record<string, string> = {
+  moto: '🏍', voiture: '🚗', tricycle: '🛺', velo: '🚲'
+}
+
+export default function LivraisonsPage() {
+  const [user, setUser]           = useState<any>(null)
+  const [livraisons, setLivraisons] = useState<any[]>([])
+  const [livreurs, setLivreurs]   = useState<any[]>([])
+  const [orders, setOrders]       = useState<any[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [waLinksResult, setWaLinksResult] = useState<any[]>([])
+  const [showWaPanel, setShowWaPanel] = useState(false)
+  const [showDrivers, setShowDrivers] = useState(false)
+  const [selectedLivraison, setSelectedLivraison] = useState<any>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [activeTab, setActiveTab] = useState<'actives' | 'terminees'>('actives')
+
+  const [form, setForm] = useState({
+    order_id: '',
+    adresse_pickup: '',
+    adresse_livraison: '',
+    ville: '',
+    quartier: '',
+    description: '',
+    poids: 'leger',
+    note_vendeur: '',
+  })
 
   useEffect(() => {
-    loadAll()
+    // Lire les params URL si on vient de la page commandes
+    const params = new URLSearchParams(window.location.search)
+    const orderId    = params.get('order_id')
+    const clientNom  = params.get('client_nom')
+    const clientPhone = params.get('client_phone')
+    const description = params.get('description')
+    if (orderId) {
+      setForm(f => ({
+        ...f,
+        order_id:    orderId,
+        description: description || f.description,
+      }))
+      setShowModal(true)
+    }
 
-    // Realtime — nouvelles livraisons disponibles
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setUser(data.user)
+        loadData(data.user.id)
+      }
+    })
+
+    // Realtime — mise à jour statuts en temps réel
     const channel = supabase
-      .channel(`livreur-${driverId}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'deliveries'
-      }, () => { loadAll() })
+      .channel('livraisons-changes')
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'deliveries'
       }, (payload) => {
-        // Si annulée ou assignée à quelqu'un d'autre → retirer des disponibles
-        if (payload.new.status === 'cancelled' || 
-            (payload.new.status === 'accepted' && payload.new.driver_id !== driverId)) {
-          setDisponibles(prev => prev.filter(d => d.id !== payload.new.id))
-        }
-        // Si c'est ma livraison → mettre à jour mes courses
-        if (payload.new.driver_id === driverId) {
-          loadAll()
-        }
-      })
-      .on('postgres_changes', {
-        event: 'DELETE', schema: 'public', table: 'deliveries'
-      }, (payload) => {
-        setDisponibles(prev => prev.filter(d => d.id !== payload.old.id))
+        setLivraisons(prev => prev.map(l =>
+          l.id === payload.new.id ? { ...l, ...payload.new } : l
+        ))
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [driverId])
+  }, [])
 
-  async function loadAll() {
-    // Charger le profil livreur
-    const { data: drv } = await supabase
-      .from('delivery_drivers')
-      .select('*')
-      .eq('id', driverId)
-      .single()
-
-    if (!drv) { setNotFound(true); setLoading(false); return }
-    setDriver(drv)
-    setDriverVille(drv.ville || '')
-
-    // Livraisons disponibles dans sa ville (pending uniquement, pas annulées)
-    const { data: dispo } = await supabase
-      .from('deliveries')
-      .select('*, orders(client_nom, total)')
-      .eq('status', 'pending')
-      .eq('ville', drv.ville)
-      .is('driver_id', null)  // pas encore assignée
-      .order('created_at', { ascending: false })
-
-    // Mes courses en cours / terminées
-    const { data: courses } = await supabase
-      .from('deliveries')
-      .select('*, orders(client_nom, total)')
-      .eq('driver_id', driverId)
-      .order('created_at', { ascending: false })
-
-    setDisponibles(dispo || [])
-    setMesCourses(courses || [])
+  async function loadData(userId: string) {
+    const [{ data: liv }, { data: drv }, { data: ord }] = await Promise.all([
+      supabase.from('deliveries')
+        .select('*, delivery_drivers(*), orders(client_nom, client_phone, total)')
+        .eq('vendor_id', userId)
+        .order('created_at', { ascending: false }),
+      supabase.from('delivery_drivers')
+        .select('*').eq('actif', true).order('note_moyenne', { ascending: false }),
+      (supabase as any).from('orders')
+        .select('id, client_nom, client_phone, total, statut')
+        .eq('vendor_id', userId)
+        .eq('statut', 'confirmee')
+        .order('created_at', { ascending: false })
+    ])
+    setLivraisons(liv || [])
+    setLivreurs(drv || [])
+    setOrders(ord || [])
     setLoading(false)
   }
 
-  async function accepterLivraison(livraison: any) {
-    setAccepting(livraison.id)
+  async function handleCreate() {
+    if (!form.order_id || !form.adresse_pickup || !form.adresse_livraison || !form.ville) return
+    setSubmitting(true)
+    const { data: newLiv } = await (supabase as any).from('deliveries').insert({
+      ...form,
+      vendor_id: user.id,
+      status: 'pending',
+    }).select().single()
 
-    // Construire le message WhatsApp AVANT l'async
-    // (window.open doit être appelé dans le même tick que le clic sur mobile)
-    let waUrl: string | null = null
-
-    // Chercher le numéro du vendeur si disponible
-    if (livraison.vendor_id) {
-      const { data: vendor } = await supabase
-        .from('profiles')
-        .select('phone, shop_name')
-        .eq('id', livraison.vendor_id)
-        .single()
-
-      if (vendor?.phone) {
-        const vPhone = normalizePhone(vendor.phone)
-        const msg = encodeURIComponent(
-          `Bonjour ! 👋\n\nJe suis *${driver.full_name}*, votre livreur Vendify.\n\n` +
-          `J'ai accepté votre livraison :\n` +
-          `📦 ${livraison.description || 'Colis'}\n` +
-          `📍 Récupération : ${livraison.adresse_pickup}\n` +
-          `🏠 Livraison : ${livraison.adresse_livraison}\n\n` +
-          `Je vous contacte dès que je suis en route. 🛵`
-        )
-        waUrl = `https://wa.me/${vPhone}?text=${msg}`
-      }
-    } else if (livraison.client_phone) {
-      // Livraison publique — contacter le client directement
-      const cPhone = normalizePhone(livraison.client_phone)
-      const msg = encodeURIComponent(
-        `Bonjour ${livraison.client_nom || ''} ! 👋\n\nJe suis *${driver.full_name}*, votre livreur Vendify.\n\n` +
-        `J'ai accepté votre demande de livraison :\n` +
-        `📦 ${livraison.description || 'Colis'}\n` +
-        `📍 Récupération : ${livraison.adresse_pickup}\n` +
-        `🏠 Livraison : ${livraison.adresse_livraison}\n\n` +
-        `Je vous contacte dès mon arrivée. 🛵`
-      )
-      waUrl = `https://wa.me/${cPhone}?text=${msg}`
+    // Notifier les livreurs via WhatsApp
+    if (newLiv?.id) {
+      fetch('/api/livraison/notifier-livreurs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delivery_id: newLiv.id })
+      }).then(r => r.json()).then(result => {
+        if (result.wa_links?.length > 0) {
+          setWaLinksResult(result.wa_links)
+          setShowWaPanel(true)
+          setShowModal(false)
+        }
+      }).catch(console.error)
     }
 
-    // Mettre à jour le statut
-    const { error } = await (supabase as any).from('deliveries').update({
-      driver_id:    driverId,
-      status:       'accepted',
-      accepted_at:  new Date().toISOString(),
-      whatsapp_link: waUrl,
-    }).eq('id', livraison.id).eq('status', 'pending')
-
-    if (!error) {
-      // Forcer le rechargement immédiat
-      await loadAll()
-      setActiveTab('mes-courses')
-      setWaToOpen(waUrl)
-    } else {
-      console.error('Erreur acceptation RLS:', error)
-      // Si erreur RLS — afficher message à l'utilisateur
-      alert(`Erreur: ${error.message}. Vérifiez les politiques RLS Supabase.`)
-    }
-    setAccepting(null)
+    await loadData(user.id)
+    setShowModal(false)
+    setForm({ order_id: '', adresse_pickup: '', adresse_livraison: '', ville: '', quartier: '', description: '', poids: 'leger', note_vendeur: '' })
+    setSubmitting(false)
   }
 
-  async function updateStatus(livraisonId: string, newStatus: string, livraison: any) {
+  async function assignDriver(livraisonId: string, driverId: string, driverWa: string, livraison: any) {
+    const driver = livreurs.find(d => d.id === driverId)
+    if (!driver) return
+
+    const msg = encodeURIComponent(
+      `Bonjour ${driver.full_name} 👋\n\nNous avons une livraison disponible pour vous sur Vendify !\n\n` +
+      `📦 *Colis :* ${livraison.description || 'Non précisé'}\n` +
+      `📍 *Récupération :* ${livraison.adresse_pickup}\n` +
+      `🏠 *Livraison :* ${livraison.adresse_livraison}\n` +
+      `🌆 *Ville :* ${livraison.ville}${livraison.quartier ? ` — ${livraison.quartier}` : ''}\n\n` +
+      `Répondez OUI pour accepter cette livraison. Merci ! 🙏`
+    )
+    const waPhone = normalizePhone(driverWa)
+    const waLink = `https://wa.me/${waPhone}?text=${msg}`
+
+    await (supabase as any).from('deliveries').update({
+      driver_id: driverId,
+      status: 'accepted',
+      accepted_at: new Date().toISOString(),
+      whatsapp_link: waLink,
+    }).eq('id', livraisonId)
+
+    await loadData(user.id)
+    setShowDrivers(false)
+    setSelectedLivraison(null)
+    window.open(waLink, '_blank')
+  }
+
+  async function updateStatus(livraisonId: string, newStatus: string) {
     const updates: any = { status: newStatus }
-    if (newStatus === 'picked_up')  updates.picked_up_at  = new Date().toISOString()
-    if (newStatus === 'in_transit') updates.in_transit_at = new Date().toISOString()
-    if (newStatus === 'delivered')  updates.delivered_at  = new Date().toISOString()
-
+    if (newStatus === 'picked_up')  updates.picked_up_at = new Date().toISOString()
+    if (newStatus === 'delivered')  updates.delivered_at = new Date().toISOString()
     await (supabase as any).from('deliveries').update(updates).eq('id', livraisonId)
-
-    // Notifier le vendeur à chaque changement de statut
-    const { data: vendor } = await supabase
-      .from('profiles').select('phone').eq('id', livraison.vendor_id).single()
-
-    if (vendor?.phone) {
-      const vPhone = normalizePhone(vendor.phone)
-      const msgs: Record<string, string> = {
-        picked_up:  `📦 *Colis récupéré !*\n\nBonjour, j'ai récupéré le colis chez vous. Je me dirige maintenant vers votre client. — ${driver.full_name} 🛵`,
-        in_transit: `🛵 *En route !*\n\nJe suis en route vers votre client avec le colis. — ${driver.full_name}`,
-        delivered:  `✅ *Livraison effectuée !*\n\nLe colis a bien été remis à votre client. Merci de faire confiance à Vendify Livraisons ! — ${driver.full_name}`,
-      }
-      if (msgs[newStatus]) {
-        window.open(`https://wa.me/${vPhone}?text=${encodeURIComponent(msgs[newStatus])}`, '_blank')
-      }
-    }
-
-    await loadAll()
+    await loadData(user.id)
   }
 
-  // ── NOT FOUND ──
-  if (notFound) return (
-    <div style={{ minHeight: '100vh', background: '#070809', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, fontFamily: 'sans-serif' }}>
-      <div style={{ fontSize: 56 }}>❓</div>
-      <div style={{ color: '#edeae4', fontSize: 20, fontWeight: 700 }}>Livreur introuvable</div>
-      <a href="/devenir-livreur" style={{ color: '#f5a623', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>→ S'inscrire comme livreur</a>
-    </div>
-  )
+  const actives  = livraisons.filter(l => !['delivered', 'cancelled'].includes(l.status))
+  const termines = livraisons.filter(l =>  ['delivered', 'cancelled'].includes(l.status))
+  const displayed = activeTab === 'actives' ? actives : termines
+
+  // Commandes sans livraison déjà créée
+  const livraisonOrderIds = livraisons.map(l => l.order_id)
+  const ordresSansLivraison = orders.filter(o => !livraisonOrderIds.includes(o.id))
+
+  const stats = {
+    total: livraisons.length,
+    actives: actives.length,
+    livrees: livraisons.filter(l => l.status === 'delivered').length,
+  }
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#070809', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: 32, height: 32, border: '3px solid rgba(255,255,255,.08)', borderTop: '3px solid #f5a623', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
-
-  const enCours = mesCourses.filter(c => !['delivered', 'cancelled'].includes(c.status))
-  const terminees = mesCourses.filter(c => c.status === 'delivered')
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=DM+Sans:wght@400;500;600&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
-        body{background:#070809;font-family:'DM Sans',sans-serif;color:#edeae4;min-height:100vh}
+        body{font-family:'DM Sans',sans-serif;background:#070809;color:#edeae4}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.92)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 
-        .topbar{position:sticky;top:0;z-index:100;background:rgba(7,8,9,.96);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.06);padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between}
-        .tb-brand{font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:800;background:linear-gradient(135deg,#f5a623,#ffcc6b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-        .tb-driver{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#edeae4}
-        .tb-dot{width:8px;height:8px;border-radius:50%;background:#2ecc87;animation:pulse 2s infinite;flex-shrink:0}
+        .page{max-width:1100px;margin:0 auto;padding:28px 24px 80px}
 
-        .page{max-width:680px;margin:0 auto;padding:24px 20px 80px}
+        .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px;flex-wrap:wrap}
+        .page-title{font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;color:#edeae4}
+        .page-sub{font-size:13px;color:#404550;margin-top:4px}
 
-        .hero-card{background:linear-gradient(135deg,#0d1117,#131b12);border:1px solid rgba(245,166,35,.15);border-radius:20px;padding:24px;margin-bottom:20px;position:relative;overflow:hidden}
-        .hero-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 80% 50%,rgba(245,166,35,.06) 0%,transparent 70%)}
-        .hero-name{font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;margin-bottom:4px}
-        .hero-meta{font-size:13px;color:#5a6070;margin-bottom:16px}
-        .hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-        .hero-stat{background:rgba(255,255,255,.04);border-radius:12px;padding:12px;text-align:center}
-        .hero-stat-num{font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;color:#f5a623}
-        .hero-stat-lbl{font-size:10px;color:#303540;font-weight:600;text-transform:uppercase;letter-spacing:.6px;margin-top:3px}
+        .btn-primary{display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f5a623,#ffcc6b);color:#000;border:none;border-radius:12px;padding:11px 20px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
+        .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,166,35,.3)}
+        .btn-primary:disabled{background:rgba(255,255,255,.06);color:#303540;cursor:not-allowed;transform:none;box-shadow:none}
 
-        .notif-banner{background:rgba(46,204,135,.08);border:1px solid rgba(46,204,135,.18);border-radius:14px;padding:14px 16px;margin-bottom:20px;display:flex;align-items:center;gap:10px;font-size:13px;color:#2ecc87;font-weight:600;animation:fadeUp .4s ease}
-        .notif-dot{width:8px;height:8px;border-radius:50%;background:#2ecc87;animation:pulse 1.5s infinite;flex-shrink:0}
+        .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+        .stat-card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px 20px}
+        .stat-num{font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;color:#edeae4;margin-bottom:4px}
+        .stat-lbl{font-size:11px;color:#303540;font-weight:600;text-transform:uppercase;letter-spacing:.8px}
 
         .tabs{display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:20px}
         .tab{padding:11px 20px;font-size:13px;font-weight:600;color:#404550;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .2s;display:flex;align-items:center;gap:7px}
         .tab.active{color:#f5a623;border-bottom-color:#f5a623}
         .tab-badge{background:rgba(245,166,35,.15);color:#f5a623;border-radius:100px;padding:1px 8px;font-size:11px;font-weight:800}
 
-        .liv-card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:18px;margin-bottom:12px;animation:fadeUp .35s ease both;transition:border-color .2s}
-        .liv-card:hover{border-color:rgba(245,166,35,.18)}
+        .livraison-card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:20px;margin-bottom:14px;animation:fadeUp .35s ease both;transition:border-color .2s}
+        .livraison-card:hover{border-color:rgba(245,166,35,.18)}
+        .lcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+        .lcard-ref{font-size:12px;color:#252830;font-weight:600}
+        .lcard-client{font-family:'Bricolage Grotesque',sans-serif;font-size:16px;font-weight:700;color:#edeae4;margin-top:3px}
+        .status-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:100px;font-size:11px;font-weight:700;flex-shrink:0}
 
-        .liv-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-        .liv-desc{font-family:'Bricolage Grotesque',sans-serif;font-size:15px;font-weight:700}
-        .liv-date{font-size:11px;color:#252830;margin-top:3px}
-        .status-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;flex-shrink:0}
-
-        .route{display:grid;grid-template-columns:1fr auto 1fr;gap:0;margin-bottom:12px}
-        .route-point{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);padding:10px 12px;border-radius:10px}
+        .route{display:flex;align-items:stretch;gap:0;margin-bottom:14px}
+        .route-point{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 14px}
         .route-point:first-child{border-radius:10px 0 0 10px;border-right:none}
         .route-point:last-child{border-radius:0 10px 10px 0}
-        .route-arrow{display:flex;align-items:center;justify-content:center;width:28px;background:rgba(255,255,255,.03);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);font-size:12px;color:#303540;flex-shrink:0}
-        .route-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#252830;margin-bottom:3px}
-        .route-addr{font-size:12px;color:#c8cdd8;line-height:1.4}
+        .route-arrow{display:flex;align-items:center;justify-content:center;width:32px;flex-shrink:0;background:rgba(255,255,255,.03);border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06);font-size:14px;color:#303540}
+        .route-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#252830;margin-bottom:4px}
+        .route-addr{font-size:12px;color:#c8cdd8;font-weight:500;line-height:1.4}
 
-        .btn-accept{width:100%;padding:13px;background:linear-gradient(135deg,#f5a623,#ffcc6b);color:#000;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(245,166,35,.2)}
-        .btn-accept:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(245,166,35,.3)}
-        .btn-accept:disabled{background:rgba(255,255,255,.05);color:#303540;cursor:not-allowed;transform:none;box-shadow:none}
-        .spinner{width:14px;height:14px;border:2px solid rgba(0,0,0,.2);border-top-color:#000;border-radius:50%;animation:spin .7s linear infinite}
+        .driver-section{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;flex-wrap:wrap}
+        .driver-info{display:flex;align-items:center;gap:10px}
+        .driver-avatar{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#f5a623,#ffcc6b);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+        .driver-name{font-size:13px;font-weight:600;color:#edeae4}
+        .driver-meta{font-size:11px;color:#404550;margin-top:2px}
 
-        .btn-next-status{width:100%;padding:13px;background:rgba(77,140,255,.1);border:1px solid rgba(77,140,255,.25);color:#4d8cff;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}
-        .btn-next-status:hover{background:rgba(77,140,255,.18)}
-        .btn-next-status.green{background:rgba(46,204,135,.1);border-color:rgba(46,204,135,.25);color:#2ecc87}
-        .btn-next-status.green:hover{background:rgba(46,204,135,.18)}
+        .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+        .btn-sm{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;border:none}
+        .btn-assign{background:rgba(77,140,255,.1);border:1px solid rgba(77,140,255,.2);color:#4d8cff}
+        .btn-assign:hover{background:rgba(77,140,255,.18)}
+        .btn-wa{background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.2);color:#25d366;text-decoration:none}
+        .btn-wa:hover{background:rgba(37,211,102,.18)}
+        .btn-status{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#c8cdd8}
+        .btn-status:hover{background:rgba(255,255,255,.09)}
+        .btn-cancel{background:rgba(255,94,94,.07);border:1px solid rgba(255,94,94,.15);color:#ff7070}
+        .btn-cancel:hover{background:rgba(255,94,94,.13)}
 
-        .empty{text-align:center;padding:50px 20px}
-        .empty-icon{font-size:44px;margin-bottom:12px;opacity:.2}
-        .empty-title{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;color:#303540;margin-bottom:6px}
-        .empty-sub{font-size:12px;color:#252830}
+        .empty{text-align:center;padding:60px 20px}
+        .empty-icon{font-size:48px;margin-bottom:14px;opacity:.2}
+        .empty-title{font-family:'Bricolage Grotesque',sans-serif;font-size:18px;color:#303540;margin-bottom:6px}
+        .empty-sub{font-size:13px;color:#252830}
 
-        @media(max-width:480px){
-          .route{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+        /* ── MODAL ── */
+        .modal-over{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);backdrop-filter:blur(16px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+        .modal-box{background:#0a0b0d;border:1px solid rgba(255,255,255,.09);border-radius:24px 24px 0 0;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;animation:slideUp .3s ease;padding:28px 24px 36px}
+        .modal-title{font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px}
+        .modal-sub{font-size:13px;color:#404550;margin-bottom:24px}
+        .field-group{display:flex;flex-direction:column;gap:16px}
+        .field{display:flex;flex-direction:column;gap:7px}
+        .field label{font-size:11px;font-weight:700;color:#303540;text-transform:uppercase;letter-spacing:.8px}
+        .inp{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 15px;color:#edeae4;font-size:14px;outline:none;font-family:'DM Sans',sans-serif;transition:border-color .2s;width:100%}
+        .inp:focus{border-color:rgba(245,166,35,.3)}
+        .inp::placeholder{color:#252830}
+        select.inp{cursor:pointer}
+        select.inp option{background:#0d0f11;color:#edeae4}
+
+        .poids-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+        .poids-opt{padding:12px 8px;border-radius:12px;border:1.5px solid rgba(255,255,255,.07);cursor:pointer;text-align:center;transition:all .2s;background:rgba(255,255,255,.02)}
+        .poids-opt.active{border-color:#f5a623;background:rgba(245,166,35,.07)}
+        .poids-opt-icon{font-size:22px;margin-bottom:5px}
+        .poids-opt-name{font-size:12px;font-weight:700;color:#edeae4}
+        .poids-opt-sub{font-size:10px;color:#404550;margin-top:2px}
+
+        /* ── LIVREURS DRAWER ── */
+        .drivers-over{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+        .drivers-box{background:#0a0b0d;border:1px solid rgba(255,255,255,.09);border-radius:24px 24px 0 0;width:100%;max-width:560px;max-height:86vh;overflow-y:auto;animation:slideUp .3s ease;padding:24px 20px 36px}
+        .driver-card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .2s;cursor:pointer}
+        .driver-card:hover{border-color:rgba(245,166,35,.2)}
+        .driver-card-avatar{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#1a1e2a,#252a38);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+        .driver-card-name{font-size:14px;font-weight:700;color:#edeae4;margin-bottom:3px}
+        .driver-card-meta{font-size:12px;color:#404550;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .driver-rating{display:flex;align-items:center;gap:4px;color:#f5a623;font-size:12px;font-weight:700}
+        .btn-choisir{margin-left:auto;flex-shrink:0;background:linear-gradient(135deg,#f5a623,#ffcc6b);color:#000;border:none;border-radius:9px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap}
+        .btn-choisir:hover{transform:scale(1.04)}
+
+        @media(max-width:640px){
+          .page{padding:20px 16px 80px}
+          .stats-row{grid-template-columns:1fr 1fr}
+          .stats-row .stat-card:last-child{grid-column:span 2}
+          .route{flex-direction:column}
           .route-point:first-child,.route-point:last-child{border-radius:10px;border:1px solid rgba(255,255,255,.06)}
-          .route-arrow{width:100%;height:20px;justify-content:center}
-          .hero-stats{grid-template-columns:1fr 1fr}
+          .route-arrow{width:100%;height:24px;transform:rotate(90deg)}
         }
       `}</style>
 
-      {/* ── TOPBAR ── */}
-      <div className="topbar">
-        <span className="tb-brand">🛵 Vendify Livraisons</span>
-        <div className="tb-driver">
-          <div className="tb-dot" />
-          {driver?.full_name}
-        </div>
-      </div>
-
       <div className="page">
 
-        {/* ── HERO PROFIL ── */}
-        <div className="hero-card">
-          <div className="hero-name">{driver.full_name} {driver.moyen === 'moto' ? '🏍' : driver.moyen === 'voiture' ? '🚗' : '🛺'}</div>
-          <div className="hero-meta">{driver.ville} · Tarif min. {new Intl.NumberFormat('fr-FR').format(driver.tarif_base)} FCFA</div>
-          {/* ── BANDEAU REALTIME ── */}
-        {notifBanner && (
-          <div style={{
-            background:'rgba(46,204,135,.08)',border:'1px solid rgba(46,204,135,.18)',
-            borderRadius:14,padding:'12px 16px',marginBottom:16,
-            display:'flex',alignItems:'center',justifyContent:'space-between',gap:12
-          }}>
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <span style={{width:8,height:8,borderRadius:'50%',background:'#2ecc87',animation:'pulse 1.5s infinite',flexShrink:0,display:'inline-block'}}/>
-              <div style={{fontSize:13,color:'#2ecc87',fontWeight:600}}>
-                Connecté — Cette page se met à jour automatiquement
-              </div>
-            </div>
-            <button onClick={()=>setNotifBanner(false)}
-              style={{background:'none',border:'none',color:'#303540',fontSize:16,cursor:'pointer',flexShrink:0}}>
-              ✕
-            </button>
+        {/* ── HEADER ── */}
+        <div className="page-header">
+          <div>
+            <div className="page-title">🛵 Livraisons</div>
+            <div className="page-sub">Gérez vos livraisons et trouvez des livreurs disponibles</div>
           </div>
-        )}
-
-        <div className="hero-stats">
-            <div className="hero-stat">
-              <div className="hero-stat-num">{driver.nb_livraisons}</div>
-              <div className="hero-stat-lbl">Livraisons</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-num">{driver.note_moyenne || '—'}</div>
-              <div className="hero-stat-lbl">Note ⭐</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-num">{enCours.length}</div>
-              <div className="hero-stat-lbl">En cours</div>
-            </div>
-          </div>
+          <button className="btn-primary" onClick={() => setShowModal(true)}
+            disabled={ordresSansLivraison.length === 0}>
+            + Demander une livraison
+          </button>
         </div>
 
-        {/* Notification nouvelles livraisons */}
-        {disponibles.length > 0 && activeTab === 'dispo' && (
-          <div className="notif-banner">
-            <div className="notif-dot" />
-            {disponibles.length} livraison{disponibles.length > 1 ? 's' : ''} disponible{disponibles.length > 1 ? 's' : ''} dans votre zone !
+        {/* ── STATS ── */}
+        <div className="stats-row">
+          <div className="stat-card">
+            <div className="stat-num">{stats.total}</div>
+            <div className="stat-lbl">Total</div>
           </div>
-        )}
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: '#f5a623' }}>{stats.actives}</div>
+            <div className="stat-lbl">En cours</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-num" style={{ color: '#2ecc87' }}>{stats.livrees}</div>
+            <div className="stat-lbl">Livrées</div>
+          </div>
+        </div>
 
         {/* ── TABS ── */}
         <div className="tabs">
-          <button className={`tab${activeTab === 'dispo' ? ' active' : ''}`} onClick={() => setActiveTab('dispo')}>
-            Disponibles
-            {disponibles.length > 0 && <span className="tab-badge">{disponibles.length}</span>}
+          <button className={`tab${activeTab === 'actives' ? ' active' : ''}`}
+            onClick={() => setActiveTab('actives')}>
+            En cours
+            {actives.length > 0 && <span className="tab-badge">{actives.length}</span>}
           </button>
-          <button className={`tab${activeTab === 'mes-courses' ? ' active' : ''}`} onClick={() => setActiveTab('mes-courses')}>
-            Mes courses
-            {enCours.length > 0 && <span className="tab-badge">{enCours.length}</span>}
+          <button className={`tab${activeTab === 'terminees' ? ' active' : ''}`}
+            onClick={() => setActiveTab('terminees')}>
+            Terminées
           </button>
         </div>
 
-        {/* ── BANDEAU WHATSAPP APRÈS ACCEPTATION ── */}
-        {waToOpen && activeTab === 'mes-courses' && (
-          <div style={{
-            background:'rgba(37,211,102,.08)',border:'1px solid rgba(37,211,102,.2)',
-            borderRadius:14,padding:'14px 16px',marginBottom:16,
-            display:'flex',alignItems:'center',justifyContent:'space-between',gap:12
-          }}>
-            <div style={{fontSize:13,color:'#2ecc87',fontWeight:600}}>
-              ✅ Livraison acceptée ! Notifiez le client/vendeur
+        {/* ── LISTE ── */}
+        {displayed.length === 0 ? (
+          <div className="empty">
+            <div className="empty-icon">🛵</div>
+            <div className="empty-title">
+              {activeTab === 'actives' ? 'Aucune livraison en cours' : 'Aucune livraison terminée'}
             </div>
-            <a href={waToOpen} target="_blank" rel="noopener noreferrer"
-              onClick={() => setWaToOpen(null)}
-              style={{
-                display:'flex',alignItems:'center',gap:6,
-                background:'#25d366',color:'#fff',borderRadius:10,
-                padding:'8px 14px',fontSize:12,fontWeight:700,
-                textDecoration:'none',flexShrink:0,whiteSpace:'nowrap'
-              }}>
-              💬 Notifier sur WhatsApp
-            </a>
+            <div className="empty-sub">
+              {activeTab === 'actives' && ordresSansLivraison.length > 0
+                ? 'Cliquez sur "Demander une livraison" pour commencer'
+                : 'Vos livraisons terminées apparaîtront ici'}
+            </div>
           </div>
-        )}
+        ) : displayed.map((liv, i) => {
+          const s = STATUS_LABELS[liv.status] || STATUS_LABELS.pending
+          const driver = liv.delivery_drivers
+          const order  = liv.orders
 
-        {/* ── LIVRAISONS DISPONIBLES ── */}
-        {activeTab === 'dispo' && (
-          disponibles.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon">📭</div>
-              <div className="empty-title">Aucune livraison disponible</div>
-              <div className="empty-sub">Cette page se met à jour automatiquement dès qu'une nouvelle livraison est disponible dans votre zone</div>
-            </div>
-          ) : disponibles.map((liv, i) => (
-            <div key={liv.id} className="liv-card" style={{ animationDelay: `${i * 0.05}s` }}>
-              <div className="liv-top">
+          return (
+            <div key={liv.id} className="livraison-card" style={{ animationDelay: `${i * 0.04}s` }}>
+
+              <div className="lcard-top">
                 <div>
-                  <div className="liv-desc">{liv.description || 'Colis à livrer'}</div>
-                  <div className="liv-date">
-                    {liv.quartier && `${liv.quartier} · `}
-                    {new Date(liv.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    {liv.poids && ` · ${liv.poids}`}
+                  <div className="lcard-ref">
+                    Livraison · {new Date(liv.created_at).toLocaleDateString('fr-FR')}
+                    {order && ` · Client : ${order.client_nom}`}
+                  </div>
+                  <div className="lcard-client">
+                    {liv.description || 'Colis non décrit'}
+                    {liv.poids && <span style={{ fontSize: 12, color: '#404550', fontWeight: 400, marginLeft: 8 }}>
+                      ({liv.poids})
+                    </span>}
                   </div>
                 </div>
-                {liv.tarif && (
-                  <div style={{ background: 'rgba(245,166,35,.1)', border: '1px solid rgba(245,166,35,.2)', borderRadius: 100, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#f5a623', flexShrink: 0 }}>
-                    {new Intl.NumberFormat('fr-FR').format(liv.tarif)} FCFA
-                  </div>
-                )}
+                <div className="status-badge" style={{ color: s.color, background: s.bg }}>
+                  {s.icon} {s.label}
+                </div>
               </div>
+
+              {/* Route */}
               <div className="route">
                 <div className="route-point">
                   <div className="route-lbl">📍 Récupération</div>
@@ -403,71 +410,311 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
                 </div>
                 <div className="route-arrow">→</div>
                 <div className="route-point">
-                  <div className="route-lbl">🏠 Destination</div>
+                  <div className="route-lbl">🏠 Livraison</div>
                   <div className="route-addr">{liv.adresse_livraison}</div>
                 </div>
               </div>
-              {liv.note_vendeur && (
-                <div style={{ fontSize: 12, color: '#5a6070', background: 'rgba(255,255,255,.03)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontStyle: 'italic' }}>
-                  📝 {liv.note_vendeur}
+
+              {/* Livreur assigné */}
+              {driver ? (
+                <div className="driver-section">
+                  <div className="driver-info">
+                    <div className="driver-avatar">{MOYEN_ICONS[driver.moyen] || '🏍'}</div>
+                    <div>
+                      <div className="driver-name">{driver.full_name}</div>
+                      <div className="driver-meta">
+                        ⭐ {driver.note_moyenne || '—'} · {driver.nb_livraisons} livraisons · {driver.ville}
+                      </div>
+                    </div>
+                  </div>
+                  {liv.whatsapp_link && (
+                    <a href={liv.whatsapp_link} target="_blank" rel="noopener noreferrer"
+                      className="btn-sm btn-wa">
+                      💬 WhatsApp
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: '10px 14px', background: 'rgba(245,166,35,.05)', border: '1px dashed rgba(245,166,35,.2)', borderRadius: 10, fontSize: 12, color: '#f5a623' }}>
+                  ⏳ En attente d'un livreur — choisissez un livreur ci-dessous
                 </div>
               )}
-              <button className="btn-accept"
-                disabled={accepting === liv.id}
-                onClick={() => accepterLivraison(liv)}>
-                {accepting === liv.id
-                  ? <><span className="spinner" /> Acceptation...</>
-                  : '🛵 Accepter cette livraison'}
-              </button>
-            </div>
-          ))
-        )}
 
-        {/* ── MES COURSES ── */}
-        {activeTab === 'mes-courses' && (
-          mesCourses.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon">🛵</div>
-              <div className="empty-title">Aucune course pour l'instant</div>
-              <div className="empty-sub">Acceptez une livraison dans l'onglet Disponibles</div>
-            </div>
-          ) : mesCourses.map((liv, i) => {
-            const s = STATUS_LABELS[liv.status]
-            if (!s) return null
-            return (
-              <div key={liv.id} className="liv-card" style={{ animationDelay: `${i * 0.04}s` }}>
-                <div className="liv-top">
-                  <div>
-                    <div className="liv-desc">{liv.description || 'Colis'}</div>
-                    <div className="liv-date">{new Date(liv.created_at).toLocaleDateString('fr-FR')}</div>
-                  </div>
-                  <div className="status-badge" style={{ color: s.color, background: s.bg }}>
-                    {s.icon} {s.label}
-                  </div>
-                </div>
-                <div className="route">
-                  <div className="route-point">
-                    <div className="route-lbl">📍 Récupération</div>
-                    <div className="route-addr">{liv.adresse_pickup}</div>
-                  </div>
-                  <div className="route-arrow">→</div>
-                  <div className="route-point">
-                    <div className="route-lbl">🏠 Destination</div>
-                    <div className="route-addr">{liv.adresse_livraison}</div>
-                  </div>
-                </div>
-                {s.next && (
-                  <button
-                    className={`btn-next-status${s.next === 'delivered' ? ' green' : ''}`}
-                    onClick={() => updateStatus(liv.id, s.next!, liv)}>
-                    {s.nextLabel} →
+              {/* Actions */}
+              <div className="actions">
+                {liv.status === 'pending' && (
+                  <button className="btn-sm btn-assign" onClick={() => {
+                    setSelectedLivraison(liv)
+                    setShowDrivers(true)
+                  }}>
+                    🏍 Choisir un livreur
+                  </button>
+                )}
+                {liv.status === 'accepted' && (
+                  <button className="btn-sm btn-status"
+                    onClick={() => updateStatus(liv.id, 'picked_up')}>
+                    📦 Marquer récupéré
+                  </button>
+                )}
+                {liv.status === 'picked_up' && (
+                  <button className="btn-sm btn-status"
+                    onClick={() => updateStatus(liv.id, 'in_transit')}>
+                    🛵 Marquer en route
+                  </button>
+                )}
+                {liv.status === 'in_transit' && (
+                  <button className="btn-sm btn-status" style={{ color: '#2ecc87', borderColor: 'rgba(46,204,135,.25)', background: 'rgba(46,204,135,.08)' }}
+                    onClick={() => updateStatus(liv.id, 'delivered')}>
+                    ✅ Marquer livré
+                  </button>
+                )}
+                {!['delivered', 'cancelled'].includes(liv.status) && (
+                  <button className="btn-sm btn-cancel"
+                    onClick={() => updateStatus(liv.id, 'cancelled')}>
+                    Annuler
                   </button>
                 )}
               </div>
-            )
-          })
-        )}
+            </div>
+          )
+        })}
       </div>
+
+      {/* ══ PANEL NOTIFIER LIVREURS ══ */}
+      {showWaPanel && waLinksResult.length > 0 && (
+        <div style={{position:'fixed',inset:0,zIndex:600,background:'rgba(0,0,0,.88)',backdropFilter:'blur(16px)',display:'flex',alignItems:'flex-end',justifyContent:'center'}}
+          onClick={() => setShowWaPanel(false)}>
+          <div style={{background:'#0a0b0d',border:'1px solid rgba(255,255,255,.09)',borderRadius:'24px 24px 0 0',width:'100%',maxWidth:520,padding:'28px 24px 36px',animation:'slideUp .3s ease'}}
+            onClick={e => e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <div style={{fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:20,fontWeight:800}}>
+                🛵 Notifier les livreurs
+              </div>
+              <button onClick={() => setShowWaPanel(false)}
+                style={{background:'none',border:'none',color:'#404550',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            {/* Progression */}
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16}}>
+              <div style={{fontSize:13,color:'#5a6070'}}>
+                ✅ Livraison créée —
+              </div>
+              <div style={{background:'rgba(46,204,135,.1)',border:'1px solid rgba(46,204,135,.2)',borderRadius:100,padding:'3px 12px',fontSize:12,fontWeight:700,color:'#2ecc87'}}>
+                {waLinksResult.length} livreur{waLinksResult.length > 1 ? 's' : ''} à notifier
+              </div>
+            </div>
+
+            <div style={{fontSize:12,color:'#404550',marginBottom:16,lineHeight:1.6,background:'rgba(255,255,255,.03)',borderRadius:10,padding:'10px 14px'}}>
+              📱 Les livreurs voient déjà la livraison sur leur page en temps réel.<br/>
+              Cliquez sur chaque bouton pour leur envoyer aussi un WhatsApp.
+            </div>
+
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {waLinksResult.map((l: any, idx: number) => (
+                <a key={l.driver_id}
+                  href={l.wa_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    setWaLinksResult((prev: any[]) => prev.filter((x: any) => x.driver_id !== l.driver_id))
+                  }}
+                  style={{
+                    display:'flex',alignItems:'center',gap:12,
+                    background: idx === 0 ? '#25d366' : 'rgba(37,211,102,.08)',
+                    border:`1px solid ${idx === 0 ? '#25d366' : 'rgba(37,211,102,.18)'}`,
+                    borderRadius:14,padding:'14px 16px',
+                    textDecoration:'none',transition:'all .15s',
+                  }}>
+                  <span style={{fontSize:22,flexShrink:0}}>💬</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:700,color: idx === 0 ? '#fff' : '#edeae4'}}>
+                      {l.driver_name}
+                    </div>
+                    <div style={{fontSize:11,color: idx === 0 ? 'rgba(255,255,255,.7)' : '#25d366',marginTop:2}}>
+                      {idx === 0 ? 'Envoyer maintenant →' : 'Appuyer pour notifier'}
+                    </div>
+                  </div>
+                  {idx === 0 && <span style={{fontSize:18,color:'#fff',flexShrink:0}}>→</span>}
+                </a>
+              ))}
+            </div>
+
+            {waLinksResult.length === 0 && (
+              <div style={{textAlign:'center',padding:'20px',fontSize:13,color:'#2ecc87',fontWeight:600}}>
+                ✅ Tous les livreurs ont été notifiés !
+              </div>
+            )}
+            <button onClick={() => setShowWaPanel(false)}
+              style={{width:'100%',marginTop:16,padding:13,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',color:'#717a8f',borderRadius:12,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL CRÉER LIVRAISON ══ */}
+      {showModal && (
+        <div className="modal-over" onClick={() => setShowModal(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <div>
+                <div className="modal-title">Nouvelle livraison 🛵</div>
+                <div className="modal-sub">Renseignez les informations de livraison</div>
+              </div>
+              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', color: '#404550', fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div className="field-group">
+
+              {/* Commande associée */}
+              <div className="field">
+                <label>Commande associée *</label>
+                <select className="inp" value={form.order_id}
+                  onChange={e => {
+                    const order = ordresSansLivraison.find(o => o.id === e.target.value)
+                    setForm(f => ({
+                      ...f,
+                      order_id: e.target.value,
+                      description: order ? `Commande ${order.client_nom}` : f.description
+                    }))
+                  }}>
+                  <option value="">Sélectionner une commande</option>
+                  {ordresSansLivraison.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.client_nom} — {new Intl.NumberFormat('fr-FR').format(o.total)} FCFA
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Description */}
+              <div className="field">
+                <label>Description du colis</label>
+                <input className="inp" value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="Ex: 2 robes, 1 sac à main..." />
+              </div>
+
+              {/* Poids */}
+              <div className="field">
+                <label>Poids estimé</label>
+                <div className="poids-grid">
+                  {POIDS_OPTIONS.map(opt => (
+                    <div key={opt.value}
+                      className={`poids-opt${form.poids === opt.value ? ' active' : ''}`}
+                      onClick={() => setForm(f => ({ ...f, poids: opt.value }))}>
+                      <div className="poids-opt-icon">{opt.icon}</div>
+                      <div className="poids-opt-name">{opt.label}</div>
+                      <div className="poids-opt-sub">{opt.sub}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Adresse pickup */}
+              <div className="field">
+                <label>Adresse de récupération * (votre adresse)</label>
+                <input className="inp" value={form.adresse_pickup}
+                  onChange={e => setForm(f => ({ ...f, adresse_pickup: e.target.value }))}
+                  placeholder="Ex: Cocody Riviera 3, résidence les Palmiers" />
+              </div>
+
+              {/* Adresse livraison */}
+              <div className="field">
+                <label>Adresse de livraison * (adresse du client)</label>
+                <input className="inp" value={form.adresse_livraison}
+                  onChange={e => setForm(f => ({ ...f, adresse_livraison: e.target.value }))}
+                  placeholder="Ex: Plateau, Immeuble Traoré, 3ème étage" />
+              </div>
+
+              {/* Ville + Quartier */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="field">
+                  <label>Ville *</label>
+                  <select className="inp" value={form.ville}
+                    onChange={e => setForm(f => ({ ...f, ville: e.target.value }))}>
+                    <option value="">Choisir</option>
+                    {['Abidjan', 'Bouaké', 'Daloa', 'Yamoussoukro', 'San-Pédro', 'Korhogo'].map(v => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Quartier (optionnel)</label>
+                  <input className="inp" value={form.quartier}
+                    onChange={e => setForm(f => ({ ...f, quartier: e.target.value }))}
+                    placeholder="Ex: Cocody, Yopougon..." />
+                </div>
+              </div>
+
+              {/* Note */}
+              <div className="field">
+                <label>Note pour le livreur (optionnel)</label>
+                <textarea className="inp" value={form.note_vendeur}
+                  onChange={e => setForm(f => ({ ...f, note_vendeur: e.target.value }))}
+                  placeholder="Instructions particulières, horaires, code portail..."
+                  rows={3} style={{ resize: 'vertical' }} />
+              </div>
+            </div>
+
+            <button onClick={handleCreate}
+              disabled={submitting || !form.order_id || !form.adresse_pickup || !form.adresse_livraison || !form.ville}
+              className="btn-primary"
+              style={{ width: '100%', marginTop: 24, padding: 15, justifyContent: 'center', fontSize: 15 }}>
+              {submitting ? '⏳ Création...' : '🛵 Créer la livraison'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ DRAWER LISTE LIVREURS ══ */}
+      {showDrivers && selectedLivraison && (
+        <div className="drivers-over" onClick={() => setShowDrivers(false)}>
+          <div className="drivers-box" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, fontWeight: 800 }}>
+                Choisir un livreur
+              </div>
+              <button onClick={() => setShowDrivers(false)} style={{ background: 'none', border: 'none', color: '#404550', fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 13, color: '#404550', marginBottom: 20 }}>
+              {livreurs.filter(d => !form.ville || d.ville === selectedLivraison.ville).length} livreur{livreurs.length > 1 ? 's' : ''} disponible{livreurs.length > 1 ? 's' : ''} à {selectedLivraison.ville}
+            </div>
+
+            {livreurs.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon">🏍</div>
+                <div className="empty-title">Aucun livreur disponible</div>
+                <div className="empty-sub">Revenez plus tard ou contactez un livreur manuellement</div>
+              </div>
+            ) : livreurs
+              .filter(d => !selectedLivraison.ville || d.ville === selectedLivraison.ville || d.ville === 'Toutes')
+              .map(driver => (
+              <div key={driver.id} className="driver-card">
+                <div className="driver-card-avatar">{MOYEN_ICONS[driver.moyen] || '🏍'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="driver-card-name">{driver.full_name}</div>
+                  <div className="driver-card-meta">
+                    <span className="driver-rating">⭐ {driver.note_moyenne || 'Nouveau'}</span>
+                    <span>·</span>
+                    <span>{driver.nb_livraisons} livraisons</span>
+                    <span>·</span>
+                    <span>{driver.moyen}</span>
+                  </div>
+                  {driver.tarif_base && (
+                    <div style={{ fontSize: 11, color: '#f5a623', fontWeight: 600, marginTop: 4 }}>
+                      À partir de {new Intl.NumberFormat('fr-FR').format(driver.tarif_base)} FCFA
+                    </div>
+                  )}
+                </div>
+                <button className="btn-choisir"
+                  onClick={() => assignDriver(selectedLivraison.id, driver.id, driver.whatsapp, selectedLivraison)}>
+                  Choisir
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   )
 }

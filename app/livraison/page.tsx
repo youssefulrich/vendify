@@ -114,15 +114,9 @@ export default function LivraisonPubliquePage() {
 
       setLivreurs(drv || [])
 
-      // Stocker les liens WhatsApp pour affichage
+      // Stocker les liens WhatsApp — pas d'ouverture auto (bloqué sur mobile)
       if (notifResult?.wa_links?.length > 0) {
         setWaLinks(notifResult.wa_links)
-        // Ouvrir WhatsApp pour le premier livreur automatiquement
-        // Les autres sont affichés en liste pour que le client choisisse
-        const firstLink = notifResult.wa_links[0]
-        if (firstLink?.wa_link) {
-          setTimeout(() => window.open(firstLink.wa_link, '_blank'), 500)
-        }
       }
 
       setStep('livreurs')
