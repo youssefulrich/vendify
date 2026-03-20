@@ -55,13 +55,36 @@ export default function DevenirLivreurPage() {
     if (!loginPhone.trim()) return
     setLoginLoading(true)
     setLoginError('')
-    const phone = loginPhone.trim()
+
+    const raw = loginPhone.trim()
+
+    // Générer tous les formats possibles du numéro
+    let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
+    const formats: string[] = [p]
+    if (p.startsWith('0') && p.length === 10) {
+      formats.push('225' + p)        // sans le 0 : 225715469666
+      formats.push('2250' + p.slice(1)) // avec le 0 : 2250715469666
+    } else if (p.length === 9) {
+      formats.push('0' + p)          // avec 0 devant
+      formats.push('2250' + p)       // format complet
+      formats.push('225' + p)
+    } else if (p.startsWith('2250') && p.length === 13) {
+      formats.push('0' + p.slice(4)) // format local
+    } else if (p.startsWith('225') && p.length === 12) {
+      formats.push('0' + p.slice(3)) // format local
+      formats.push('2250' + p.slice(3)) // avec 0
+    }
+
+    // Chercher avec tous les formats
+    const orFilter = formats.map(f => `phone.eq.${f},whatsapp.eq.${f}`).join(',')
+
     const { data } = await supabase
       .from('delivery_drivers')
       .select('id, full_name, actif')
-      .or(`phone.eq.${phone},whatsapp.eq.${phone}`)
+      .or(orFilter)
       .eq('actif', true)
-      .single()
+      .maybeSingle()
+
     if (data) {
       window.location.href = `/livreur/${data.id}`
     } else {

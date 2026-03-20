@@ -12,22 +12,14 @@ function normalizePhone(raw: string): string {
   if (!raw) return ''
   let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
   if (!p || p.length < 8) return ''
-  // Déjà correct : 225 + 9 chiffres = 12 chiffres
-  if (p.startsWith('225') && p.length === 12) return p
-  // Double préfixe : 2250XXXXXXXXX = 13 chiffres
-  if (p.startsWith('2250') && p.length === 13) return '225' + p.slice(4)
-  // Autres pays
-  for (const prefix of ['221', '229', '237', '228']) {
-    if (p.startsWith(prefix) && p.length >= 11) return p
-  }
-  // Local 10 chiffres avec 0 (ex: 0715469666 → 225715469666)
-  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
-  // Local 9 chiffres sans 0
-  if (p.length === 9) return '225' + p
-  // Local 8 chiffres
-  if (p.length === 8) return '225' + p
-  // Local 10 chiffres sans 0
-  if (p.length === 10) return '225' + p
+  // Déjà correct : 2250 + 9 chiffres = 13
+  if (p.startsWith('2250') && p.length === 13) return p
+  // 225 + 9 chiffres sans le 0 → ajouter le 0
+  if (p.startsWith('225') && p.length === 12) return '2250' + p.slice(3)
+  // Local avec 0 : 0715469666 → 2250715469666
+  if (p.startsWith('0') && p.length === 10) return '225' + p
+  // Local sans 0 : 715469666 → 2250715469666
+  if (p.length === 9) return '2250' + p
   return p
 }
 
