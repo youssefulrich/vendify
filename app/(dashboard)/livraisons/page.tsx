@@ -9,13 +9,19 @@ function fCFA(n: number) {
   return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA'
 }
 
-function normalizePhone(raw: string) {
+function normalizePhone(raw: string): string {
   if (!raw) return ''
   let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
   if (!p || p.length < 8) return ''
-  if (p.length >= 11) return p
+  if (p.startsWith('225') && p.length === 12) return p
+  if (p.startsWith('2250') && p.length === 13) return '225' + p.slice(4)
+  for (const prefix of ['221', '229', '237', '228']) {
+    if (p.startsWith(prefix) && p.length >= 11) return p
+  }
   if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
+  if (p.length === 9) return '225' + p
   if (p.length === 8) return '225' + p
+  if (p.length === 10) return '225' + p
   return p
 }
 

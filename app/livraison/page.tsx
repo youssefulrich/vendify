@@ -5,13 +5,19 @@ import { createClient } from '@/lib/supabase/client'
 
 const supabase = createClient()
 
-function normalizePhone(raw: string) {
+function normalizePhone(raw: string): string {
   if (!raw) return ''
   let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
   if (!p || p.length < 8) return ''
-  if (p.length >= 11) return p
+  if (p.startsWith('225') && p.length === 12) return p
+  if (p.startsWith('2250') && p.length === 13) return '225' + p.slice(4)
+  for (const prefix of ['221', '229', '237', '228']) {
+    if (p.startsWith(prefix) && p.length >= 11) return p
+  }
   if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
+  if (p.length === 9) return '225' + p
   if (p.length === 8) return '225' + p
+  if (p.length === 10) return '225' + p
   return p
 }
 
@@ -33,16 +39,17 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; 
 }
 
 export default function LivraisonPubliquePage() {
-  const [step, setStep]             = useState<'form' | 'livreurs' | 'suivi'>('form')
-  const [livreurs, setLivreurs]     = useState<any[]>([])
-  const [livraison, setLivraison]   = useState<any>(null)
-  const [loading, setLoading]       = useState(false)
+  const [step, setStep]           = useState<'form' | 'livreurs' | 'suivi'>('form')
+  const [livreurs, setLivreurs]   = useState<any[]>([])
+  const [livraison, setLivraison] = useState<any>(null)
+  const [loading, setLoading]     = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [trackRef, setTrackRef]     = useState('')
+  const [trackRef, setTrackRef]   = useState('')
   const [trackLoading, setTrackLoading] = useState(false)
-  const [trackData, setTrackData]   = useState<any>(null)
+  const [trackData, setTrackData] = useState<any>(null)
   const [trackError, setTrackError] = useState('')
-  const [showTrack, setShowTrack]   = useState(false)
+  const [waLinks, setWaLinks]         = useState<any[]>([])
+  const [showTrack, setShowTrack] = useState(false)
 
   const [form, setForm] = useState({
     client_nom: '',
@@ -56,21 +63,9 @@ export default function LivraisonPubliquePage() {
     note_vendeur: '',
   })
 
+  // Vérifier si un ref de suivi est dans l'URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    // Pré-remplir depuis les query params (ex: depuis /commandes)
-    const order_id    = params.get('order_id')
-    const client_nom  = params.get('client_nom')
-    const client_phone = params.get('client_phone')
-    const description = params.get('description')
-    if (client_nom || client_phone || description) {
-      setForm(f => ({
-        ...f,
-        client_nom:  client_nom  || f.client_nom,
-        client_phone: client_phone || f.client_phone,
-        description: description || f.description,
-      }))
-    }
     const ref = params.get('ref')
     if (ref) {
       setTrackRef(ref)
@@ -78,6 +73,7 @@ export default function LivraisonPubliquePage() {
     }
   }, [])
 
+  // Realtime suivi
   useEffect(() => {
     if (!livraison?.id) return
     const channel = supabase
@@ -96,14 +92,12 @@ export default function LivraisonPubliquePage() {
     if (!form.client_nom || !form.client_phone || !form.adresse_pickup || !form.adresse_livraison || !form.ville) return
     setSubmitting(true)
 
-    // Récupérer l'utilisateur connecté (vendeur)
-    const { data: { user } } = await supabase.auth.getUser()
-
+    // Générer une référence unique
     const reference = `LIV-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 
     const { data, error } = await (supabase as any).from('deliveries').insert({
       ...form,
-      vendor_id: user?.id || null,
+      vendor_id: null,
       reference,
       status: 'pending',
     }).select().single()
@@ -111,18 +105,25 @@ export default function LivraisonPubliquePage() {
     if (!error && data) {
       setLivraison(data)
 
-      const [{ data: drv }] = await Promise.all([
+      // Charger les livreurs + notifier en parallèle
+      const [{ data: drv }, notifResult] = await Promise.all([
         supabase.from('delivery_drivers').select('*')
           .eq('actif', true).eq('ville', form.ville)
           .order('note_moyenne', { ascending: false }),
-        fetch('/api/notify', {
+        fetch('/api/livraison/notifier-livreurs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'livraison', id: data.id })
-        }).catch(() => null)
+          body: JSON.stringify({ delivery_id: data.id })
+        }).then(r => r.json()).catch(() => null)
       ])
 
       setLivreurs(drv || [])
+
+      // Si des livreurs sans push → afficher leurs liens WhatsApp
+      if (notifResult?.wa_links?.length > 0) {
+        setWaLinks(notifResult.wa_links)
+      }
+
       setStep('livreurs')
     }
     setSubmitting(false)
@@ -148,15 +149,17 @@ export default function LivraisonPubliquePage() {
     const waLink  = `https://wa.me/${waPhone}?text=${msg}`
 
     await (supabase as any).from('deliveries').update({
-      driver_id:     driver.id,
-      status:        'accepted',
-      accepted_at:   new Date().toISOString(),
+      driver_id:    driver.id,
+      status:       'accepted',
+      accepted_at:  new Date().toISOString(),
       whatsapp_link: waLink,
     }).eq('id', livraison.id)
 
     setLivraison((prev: any) => ({ ...prev, status: 'accepted', delivery_drivers: driver }))
     setLoading(false)
     setStep('suivi')
+
+    // Ouvrir WhatsApp
     window.open(waLink, '_blank')
   }
 
@@ -211,6 +214,7 @@ export default function LivraisonPubliquePage() {
         .container{max-width:560px;margin:0 auto;padding:0 20px 80px}
 
         .card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:24px;margin-bottom:16px;animation:slideUp .4s ease}
+
         .section-title{font-family:'Bricolage Grotesque',sans-serif;font-size:17px;font-weight:800;margin-bottom:4px}
         .section-sub{font-size:13px;color:#404550;margin-bottom:20px}
 
@@ -247,6 +251,7 @@ export default function LivraisonPubliquePage() {
         .btn-choisir:hover{transform:scale(1.04)}
         .btn-choisir:disabled{background:rgba(255,255,255,.08);color:#303540;cursor:not-allowed;transform:none}
 
+        /* Suivi */
         .suivi-card{background:#0d0f11;border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:28px 24px;animation:slideUp .4s ease}
         .status-big{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:28px}
         .status-icon{font-size:52px;margin-bottom:12px}
@@ -271,7 +276,10 @@ export default function LivraisonPubliquePage() {
         .ref-hint{font-size:11px;color:#303540;margin-top:6px}
 
         .driver-assigned{background:rgba(77,140,255,.06);border:1px solid rgba(77,140,255,.15);border-radius:14px;padding:16px;display:flex;align-items:center;gap:12px;margin-bottom:20px}
+        .btn-wa-livreur{display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.2);color:#25d366;border-radius:12px;padding:13px;font-size:14px;font-weight:600;text-decoration:none;width:100%;transition:all .15s}
+        .btn-wa-livreur:hover{background:rgba(37,211,102,.18)}
 
+        /* Track modal */
         .track-over{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.88);backdrop-filter:blur(16px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
         .track-box{background:#0a0b0d;border:1px solid rgba(255,255,255,.09);border-radius:24px 24px 0 0;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;animation:slideUp .3s ease;padding:28px 24px 36px}
 
@@ -281,7 +289,7 @@ export default function LivraisonPubliquePage() {
         }
       `}</style>
 
-      {/* TOPBAR */}
+      {/* ── TOPBAR ── */}
       <div className="topbar">
         <a href="/" className="tb-brand">
           <div className="tb-icon">🛒</div>
@@ -292,7 +300,7 @@ export default function LivraisonPubliquePage() {
         </button>
       </div>
 
-      {/* HERO */}
+      {/* ── HERO ── */}
       <div className="hero">
         <span className="hero-icon">🛵</span>
         <h1 className="hero-title">
@@ -305,7 +313,7 @@ export default function LivraisonPubliquePage() {
 
       <div className="container">
 
-        {/* ÉTAPE 1 : FORMULAIRE */}
+        {/* ══ ÉTAPE 1 : FORMULAIRE ══ */}
         {step === 'form' && (
           <>
             <div className="card">
@@ -330,6 +338,7 @@ export default function LivraisonPubliquePage() {
             <div className="card">
               <div className="section-title">Détails de la livraison</div>
               <div className="section-sub">Où on récupère et où on livre</div>
+
               <div className="field">
                 <label>Adresse de récupération *</label>
                 <input className="inp" value={form.adresse_pickup}
@@ -362,6 +371,7 @@ export default function LivraisonPubliquePage() {
             <div className="card">
               <div className="section-title">Votre colis</div>
               <div className="section-sub">Décrivez ce que vous envoyez</div>
+
               <div className="field">
                 <label>Description</label>
                 <input className="inp" value={form.description}
@@ -389,6 +399,7 @@ export default function LivraisonPubliquePage() {
                   placeholder="Instructions, code portail, horaires préférés..."
                   rows={3} style={{ resize: 'vertical' }} />
               </div>
+
               <button className="btn-submit"
                 disabled={submitting || !form.client_nom || !form.client_phone || !form.adresse_pickup || !form.adresse_livraison || !form.ville}
                 onClick={handleSubmit}>
@@ -400,7 +411,7 @@ export default function LivraisonPubliquePage() {
           </>
         )}
 
-        {/* ÉTAPE 2 : CHOISIR LIVREUR */}
+        {/* ══ ÉTAPE 2 : CHOISIR LIVREUR ══ */}
         {step === 'livreurs' && (
           <div className="card">
             <div className="section-title">Choisissez votre livreur</div>
@@ -415,10 +426,22 @@ export default function LivraisonPubliquePage() {
                   Notifications envoyées aux livreurs !
                 </div>
                 <div style={{ fontSize: 13, color: '#252830', marginBottom: 20 }}>
-                  Les livreurs de votre zone ont été alertés via WhatsApp. L'un d'eux acceptera bientôt.
+                  Les livreurs de votre zone ont été alertés. L'un d'eux acceptera bientôt.
                 </div>
-                <button onClick={() => setStep('suivi')}
-                  style={{ padding: '11px 24px', background: 'linear-gradient(135deg,#f5a623,#ffcc6b)', color: '#000', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {waLinks.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: '#404550', marginBottom: 10 }}>
+                      Vous pouvez aussi contacter directement un livreur :
+                    </div>
+                    {waLinks.slice(0, 3).map((l: any) => (
+                      <a key={l.driver_id} href={l.wa_link} target="_blank" rel="noopener noreferrer"
+                        style={{ display:'flex',alignItems:'center',gap:8,background:'rgba(37,211,102,.08)',border:'1px solid rgba(37,211,102,.15)',borderRadius:10,padding:'10px 14px',marginBottom:8,textDecoration:'none',fontSize:13,color:'#25d366',fontWeight:600 }}>
+                        💬 Contacter {l.driver_name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => setStep('suivi')} style={{ padding: '11px 24px', background: 'linear-gradient(135deg,#f5a623,#ffcc6b)', color: '#000', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   Suivre ma livraison →
                 </button>
               </div>
@@ -447,9 +470,11 @@ export default function LivraisonPubliquePage() {
           </div>
         )}
 
-        {/* ÉTAPE 3 : SUIVI */}
+        {/* ══ ÉTAPE 3 : SUIVI ══ */}
         {step === 'suivi' && livraison && (
           <div className="suivi-card">
+
+            {/* Référence */}
             <div className="ref-box">
               <div className="ref-lbl">Référence de suivi</div>
               <div className="ref-val">{livraison.reference}</div>
@@ -460,6 +485,7 @@ export default function LivraisonPubliquePage() {
               </button>
             </div>
 
+            {/* Statut actuel */}
             {s && (
               <div className="status-big">
                 <div className="status-icon">{s.icon}</div>
@@ -476,6 +502,7 @@ export default function LivraisonPubliquePage() {
               </div>
             )}
 
+            {/* Livreur assigné */}
             {livraison.delivery_drivers && (
               <div className="driver-assigned">
                 <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(77,140,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
@@ -496,13 +523,14 @@ export default function LivraisonPubliquePage() {
               </div>
             )}
 
+            {/* Timeline */}
             <div className="timeline">
               {[
-                { key: 'pending',    label: 'Demande créée',   time: livraison.created_at },
-                { key: 'accepted',   label: 'Livreur assigné', time: livraison.accepted_at },
-                { key: 'picked_up',  label: 'Colis récupéré',  time: livraison.picked_up_at },
-                { key: 'in_transit', label: 'En route',        time: livraison.in_transit_at },
-                { key: 'delivered',  label: 'Livré',           time: livraison.delivered_at },
+                { key: 'pending',    label: 'Demande créée',     time: livraison.created_at },
+                { key: 'accepted',   label: 'Livreur assigné',   time: livraison.accepted_at },
+                { key: 'picked_up',  label: 'Colis récupéré',    time: livraison.picked_up_at },
+                { key: 'in_transit', label: 'En route',          time: livraison.in_transit_at },
+                { key: 'delivered',  label: 'Livré',             time: livraison.delivered_at },
               ].map((item, i) => {
                 const currentIdx = STEPS_TRACK.indexOf(livraison.status)
                 const itemIdx    = STEPS_TRACK.indexOf(item.key)
@@ -527,6 +555,7 @@ export default function LivraisonPubliquePage() {
               })}
             </div>
 
+            {/* Route recap */}
             <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 14, padding: 16, marginBottom: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
@@ -541,18 +570,15 @@ export default function LivraisonPubliquePage() {
               </div>
             </div>
 
-            <button onClick={() => {
-              setStep('form')
-              setLivraison(null)
-              setForm({ client_nom: '', client_phone: '', adresse_pickup: '', adresse_livraison: '', ville: 'Abidjan', quartier: '', description: '', poids: 'leger', note_vendeur: '' })
-            }} style={{ width: '100%', padding: 13, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#717a8f', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={() => { setStep('form'); setLivraison(null); setForm({ client_nom: '', client_phone: '', adresse_pickup: '', adresse_livraison: '', ville: 'Abidjan', quartier: '', description: '', poids: 'leger', note_vendeur: '' }) }}
+              style={{ width: '100%', padding: 13, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#717a8f', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Nouvelle livraison
             </button>
           </div>
         )}
       </div>
 
-      {/* MODAL SUIVI */}
+      {/* ══ MODAL SUIVI PAR RÉFÉRENCE ══ */}
       {showTrack && (
         <div className="track-over" onClick={() => setShowTrack(false)}>
           <div className="track-box" onClick={e => e.stopPropagation()}>
