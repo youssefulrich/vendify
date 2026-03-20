@@ -37,8 +37,26 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
     // Realtime — nouvelles livraisons disponibles
     const channel = supabase
       .channel(`livreur-${driverId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, () => {
-        loadAll()
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'deliveries'
+      }, () => { loadAll() })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'deliveries'
+      }, (payload) => {
+        // Si annulée ou assignée à quelqu'un d'autre → retirer des disponibles
+        if (payload.new.status === 'cancelled' || 
+            (payload.new.status === 'accepted' && payload.new.driver_id !== driverId)) {
+          setDisponibles(prev => prev.filter(d => d.id !== payload.new.id))
+        }
+        // Si c'est ma livraison → mettre à jour mes courses
+        if (payload.new.driver_id === driverId) {
+          loadAll()
+        }
+      })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'deliveries'
+      }, (payload) => {
+        setDisponibles(prev => prev.filter(d => d.id !== payload.old.id))
       })
       .subscribe()
 
@@ -57,12 +75,13 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
     setDriver(drv)
     setDriverVille(drv.ville || '')
 
-    // Livraisons disponibles dans sa ville (pending, pas encore assignées)
+    // Livraisons disponibles dans sa ville (pending uniquement, pas annulées)
     const { data: dispo } = await supabase
       .from('deliveries')
       .select('*, orders(client_nom, total)')
       .eq('status', 'pending')
       .eq('ville', drv.ville)
+      .is('driver_id', null)  // pas encore assignée
       .order('created_at', { ascending: false })
 
     // Mes courses en cours / terminées
@@ -127,12 +146,14 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
     }).eq('id', livraison.id).eq('status', 'pending')
 
     if (!error) {
+      // Forcer le rechargement immédiat
       await loadAll()
       setActiveTab('mes-courses')
-      // Afficher bouton WhatsApp dans mes-courses plutôt qu'ouvrir auto
       setWaToOpen(waUrl)
     } else {
-      console.error('Erreur acceptation:', error)
+      console.error('Erreur acceptation RLS:', error)
+      // Si erreur RLS — afficher message à l'utilisateur
+      alert(`Erreur: ${error.message}. Vérifiez les politiques RLS Supabase.`)
     }
     setAccepting(null)
   }
