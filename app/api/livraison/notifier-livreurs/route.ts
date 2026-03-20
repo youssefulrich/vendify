@@ -1,6 +1,4 @@
 // app/api/livraison/notifier-livreurs/route.ts
-// Appelée automatiquement quand une livraison est créée
-// Envoie push notification + prépare messages WhatsApp
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -10,11 +8,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Génère les clés VAPID (à faire une seule fois)
-// npx web-push generate-vapid-keys
-const VAPID_PUBLIC_KEY  = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY!
-const VAPID_EMAIL       = process.env.VAPID_EMAIL || 'mailto:contact@vendify.ci'
+function normalizePhone(raw: string): string {
+  if (!raw) return ''
+  let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
+  if (!p || p.length < 8) return ''
+  // Déjà correct : 225 + 9 chiffres = 12 chiffres
+  if (p.startsWith('225') && p.length === 12) return p
+  // Double préfixe : 2250XXXXXXXXX = 13 chiffres
+  if (p.startsWith('2250') && p.length === 13) return '225' + p.slice(4)
+  // Autres pays
+  for (const prefix of ['221', '229', '237', '228']) {
+    if (p.startsWith(prefix) && p.length >= 11) return p
+  }
+  // Local 10 chiffres avec 0 (ex: 0715469666 → 225715469666)
+  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
+  // Local 9 chiffres sans 0
+  if (p.length === 9) return '225' + p
+  // Local 8 chiffres
+  if (p.length === 8) return '225' + p
+  // Local 10 chiffres sans 0
+  if (p.length === 10) return '225' + p
+  return p
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,15 +37,17 @@ export async function POST(request: NextRequest) {
     if (!delivery_id) return NextResponse.json({ error: 'delivery_id requis' }, { status: 400 })
 
     // 1. Récupérer la livraison
-    const { data: livraison } = await supabase
+    const { data: livraison, error: livErr } = await supabase
       .from('deliveries')
       .select('*')
       .eq('id', delivery_id)
       .single()
 
-    if (!livraison) return NextResponse.json({ error: 'Livraison introuvable' }, { status: 404 })
+    if (livErr || !livraison) {
+      return NextResponse.json({ error: 'Livraison introuvable' }, { status: 404 })
+    }
 
-    // 2. Récupérer les livreurs disponibles dans la ville
+    // 2. Récupérer les livreurs actifs dans la ville
     const { data: livreurs } = await supabase
       .from('delivery_drivers')
       .select('id, full_name, whatsapp, phone, ville')
@@ -38,99 +55,49 @@ export async function POST(request: NextRequest) {
       .eq('actif', true)
 
     if (!livreurs || livreurs.length === 0) {
-      return NextResponse.json({ success: true, notified: 0, message: 'Aucun livreur disponible' })
+      return NextResponse.json({ success: true, notified: 0, wa_links: [] })
     }
 
-    // 3. Récupérer les abonnements push de ces livreurs
-    const driverIds = livreurs.map(d => d.id)
-    const { data: subscriptions } = await supabase
-      .from('driver_push_subscriptions')
-      .select('*')
-      .in('driver_id', driverIds)
+    // 3. Construire le message WhatsApp
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vendify-qsom.vercel.app'
 
-    // 4. Envoyer les push notifications
-    let pushSent = 0
-    if (subscriptions && subscriptions.length > 0) {
-      // Import dynamique de web-push
-      const webpush = await import('web-push')
-      webpush.default.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
-
-      const payload = JSON.stringify({
-        title:       '🛵 Nouvelle livraison disponible !',
-        body:        `${livraison.ville}${livraison.quartier ? ` — ${livraison.quartier}` : ''} · ${livraison.description || 'Colis à livrer'}`,
-        tag:         `livraison-${delivery_id}`,
-        delivery_id: delivery_id,
-        driver_id:   null, // sera remplacé par driver_id de l'abonnement
-        url:         `/livreur/`,
-      })
-
-      await Promise.allSettled(
-        subscriptions.map(async (sub) => {
-          try {
-            // Personnaliser l'URL avec l'ID du livreur
-            const personalPayload = JSON.stringify({
-              ...JSON.parse(payload),
-              driver_id: sub.driver_id,
-              url:       `/livreur/${sub.driver_id}`,
-            })
-
-            await webpush.default.sendNotification(
-              {
-                endpoint: sub.endpoint,
-                keys: { p256dh: sub.p256dh, auth: sub.auth }
-              },
-              personalPayload
-            )
-            pushSent++
-          } catch (err: any) {
-            // Abonnement expiré — le supprimer
-            if (err.statusCode === 410) {
-              await supabase.from('driver_push_subscriptions').delete().eq('id', sub.id)
-            }
-          }
-        })
-      )
-    }
-
-    // 5. Préparer les liens WhatsApp pour les livreurs SANS push subscription
-    const livreursSansPush = livreurs.filter(
-      d => !subscriptions?.find(s => s.driver_id === d.id)
-    )
-
-    const msg = encodeURIComponent(
+    const messageBase =
       `🛵 *Nouvelle livraison disponible !*\n\n` +
       `📍 *Zone :* ${livraison.ville}${livraison.quartier ? ` — ${livraison.quartier}` : ''}\n` +
       `📦 *Colis :* ${livraison.description || 'Non précisé'} (${livraison.poids || 'léger'})\n` +
-      `🏠 *De :* ${livraison.adresse_pickup}\n` +
-      `📌 *Vers :* ${livraison.adresse_livraison}\n\n` +
-      `Cliquez sur votre lien pour accepter :\n`
-    )
+      `🏠 *Récupération :* ${livraison.adresse_pickup}\n` +
+      `📌 *Livraison :* ${livraison.adresse_livraison}\n\n` +
+      `👇 *Accepter cette livraison :*\n`
 
-    const whatsappLinks = livreursSansPush.map(d => ({
-      driver_id:   d.id,
-      driver_name: d.full_name,
-      wa_link:     `https://wa.me/${normalizePhone(d.whatsapp || d.phone)}?text=${msg}${encodeURIComponent(`vendify.ci/livreur/${d.id}`)}`,
-    }))
+    // 4. Générer les liens WhatsApp pour chaque livreur
+    const waLinks = livreurs.map(d => {
+      const phone = normalizePhone(d.whatsapp || d.phone)
+      const message = messageBase + `${appUrl}/livreur/${d.id}`
+      return {
+        driver_id:   d.id,
+        driver_name: d.full_name,
+        phone:       phone,
+        wa_link:     phone
+          ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+          : null,
+      }
+    }).filter(d => d.wa_link !== null)
+
+    // 5. Sauvegarder les liens dans la livraison pour référence
+    await supabase
+      .from('deliveries')
+      .update({ note_livreur: `${waLinks.length} livreur(s) notifié(s)` })
+      .eq('id', delivery_id)
 
     return NextResponse.json({
       success:        true,
-      push_sent:      pushSent,
-      wa_links:       whatsappLinks,
+      wa_links:       waLinks,
       total_livreurs: livreurs.length,
+      push_sent:      0,
     })
 
   } catch (error: any) {
     console.error('Erreur notification livreurs:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
-
-function normalizePhone(raw: string) {
-  if (!raw) return ''
-  let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
-  if (!p || p.length < 8) return ''
-  if (p.length >= 11) return p
-  if (p.length === 10 && p.startsWith('0')) return '225' + p.slice(1)
-  if (p.length === 8) return '225' + p
-  return p
 }

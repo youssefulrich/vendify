@@ -134,7 +134,7 @@ export default function LivraisonsPage() {
       status: 'pending',
     }).select().single()
 
-    // Notifier les livreurs (push + WhatsApp)
+    // Notifier les livreurs via WhatsApp
     if (newLiv?.id) {
       fetch('/api/livraison/notifier-livreurs', {
         method: 'POST',
@@ -142,10 +142,13 @@ export default function LivraisonsPage() {
         body: JSON.stringify({ delivery_id: newLiv.id })
       }).then(r => r.json()).then(result => {
         if (result.wa_links?.length > 0) {
-          // Ouvrir WhatsApp pour les livreurs sans push
-          result.wa_links.slice(0, 3).forEach((l: any, i: number) => {
-            setTimeout(() => window.open(l.wa_link, '_blank'), i * 800)
-          })
+          // Ouvrir WhatsApp pour chaque livreur avec délai
+          // Le navigateur peut bloquer plusieurs popups — on ouvre le premier auto
+          // Les autres sont disponibles via les boutons dans la liste
+          const first = result.wa_links[0]
+          if (first?.wa_link) {
+            window.open(first.wa_link, '_blank')
+          }
         }
       }).catch(console.error)
     }
