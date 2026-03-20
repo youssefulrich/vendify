@@ -29,6 +29,7 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
   const [accepting, setAccepting]   = useState<string | null>(null)
 
   const [notifBanner, setNotifBanner] = useState(true)
+  const [waToOpen, setWaToOpen] = useState<string | null>(null)
 
   useEffect(() => {
     loadAll()
@@ -79,17 +80,12 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
   async function accepterLivraison(livraison: any) {
     setAccepting(livraison.id)
 
-    // Assigner le livreur + passer en accepted
-    const { error } = await (supabase as any).from('deliveries').update({
-      driver_id:   driverId,
-      status:      'accepted',
-      accepted_at: new Date().toISOString(),
-      whatsapp_link: null,
-    }).eq('id', livraison.id).eq('status', 'pending') // sécurité : éviter double accept
+    // Construire le message WhatsApp AVANT l'async
+    // (window.open doit être appelé dans le même tick que le clic sur mobile)
+    let waUrl: string | null = null
 
-    if (!error) {
-      // Notifier le vendeur sur WhatsApp
-      // On récupère le phone du vendeur via profiles
+    // Chercher le numéro du vendeur si disponible
+    if (livraison.vendor_id) {
       const { data: vendor } = await supabase
         .from('profiles')
         .select('phone, shop_name')
@@ -106,11 +102,37 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
           `🏠 Livraison : ${livraison.adresse_livraison}\n\n` +
           `Je vous contacte dès que je suis en route. 🛵`
         )
-        window.open(`https://wa.me/${vPhone}?text=${msg}`, '_blank')
+        waUrl = `https://wa.me/${vPhone}?text=${msg}`
       }
+    } else if (livraison.client_phone) {
+      // Livraison publique — contacter le client directement
+      const cPhone = normalizePhone(livraison.client_phone)
+      const msg = encodeURIComponent(
+        `Bonjour ${livraison.client_nom || ''} ! 👋\n\nJe suis *${driver.full_name}*, votre livreur Vendify.\n\n` +
+        `J'ai accepté votre demande de livraison :\n` +
+        `📦 ${livraison.description || 'Colis'}\n` +
+        `📍 Récupération : ${livraison.adresse_pickup}\n` +
+        `🏠 Livraison : ${livraison.adresse_livraison}\n\n` +
+        `Je vous contacte dès mon arrivée. 🛵`
+      )
+      waUrl = `https://wa.me/${cPhone}?text=${msg}`
+    }
 
+    // Mettre à jour le statut
+    const { error } = await (supabase as any).from('deliveries').update({
+      driver_id:    driverId,
+      status:       'accepted',
+      accepted_at:  new Date().toISOString(),
+      whatsapp_link: waUrl,
+    }).eq('id', livraison.id).eq('status', 'pending')
+
+    if (!error) {
       await loadAll()
       setActiveTab('mes-courses')
+      // Afficher bouton WhatsApp dans mes-courses plutôt qu'ouvrir auto
+      setWaToOpen(waUrl)
+    } else {
+      console.error('Erreur acceptation:', error)
     }
     setAccepting(null)
   }
@@ -304,6 +326,29 @@ export default function LivreurDashboardPage({ params }: { params: Promise<{ id:
             {enCours.length > 0 && <span className="tab-badge">{enCours.length}</span>}
           </button>
         </div>
+
+        {/* ── BANDEAU WHATSAPP APRÈS ACCEPTATION ── */}
+        {waToOpen && activeTab === 'mes-courses' && (
+          <div style={{
+            background:'rgba(37,211,102,.08)',border:'1px solid rgba(37,211,102,.2)',
+            borderRadius:14,padding:'14px 16px',marginBottom:16,
+            display:'flex',alignItems:'center',justifyContent:'space-between',gap:12
+          }}>
+            <div style={{fontSize:13,color:'#2ecc87',fontWeight:600}}>
+              ✅ Livraison acceptée ! Notifiez le client/vendeur
+            </div>
+            <a href={waToOpen} target="_blank" rel="noopener noreferrer"
+              onClick={() => setWaToOpen(null)}
+              style={{
+                display:'flex',alignItems:'center',gap:6,
+                background:'#25d366',color:'#fff',borderRadius:10,
+                padding:'8px 14px',fontSize:12,fontWeight:700,
+                textDecoration:'none',flexShrink:0,whiteSpace:'nowrap'
+              }}>
+              💬 Notifier sur WhatsApp
+            </a>
+          </div>
+        )}
 
         {/* ── LIVRAISONS DISPONIBLES ── */}
         {activeTab === 'dispo' && (
