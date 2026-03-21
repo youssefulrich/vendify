@@ -7,6 +7,17 @@ const supabase = createClient()
 
 const VILLES = ['Abidjan', 'Bouaké', 'Daloa', 'Yamoussoukro', 'San-Pédro', 'Korhogo']
 const QUARTIERS_ABIDJAN = ['Cocody','Plateau','Yopougon','Adjamé','Abobo','Koumassi','Marcory','Treichville','Attécoubé','Port-Bouët']
+function normalizePhone(raw: string): string {
+  if (!raw) return raw
+  let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
+  if (!p || p.length < 8) return raw
+  if (p.startsWith('2250') && p.length === 13) return p
+  if (p.startsWith('225') && p.length === 12) return '2250' + p.slice(3)
+  if (p.startsWith('0') && p.length === 10) return '225' + p
+  if (p.length === 9) return '2250' + p
+  return p
+}
+
 const MOYENS = [
   { value: 'moto',     icon: '🏍',  label: 'Moto' },
   { value: 'voiture',  icon: '🚗',  label: 'Voiture' },
@@ -57,33 +68,44 @@ export default function DevenirLivreurPage() {
     setLoginError('')
 
     const raw = loginPhone.trim()
-
-    // Générer tous les formats possibles du numéro
     let p = raw.replace(/[\s\-().+]/g, '').replace(/\D/g, '')
-    const formats: string[] = [p]
+
+    // Générer TOUS les formats possibles
+    const formats = new Set<string>([p])
+    // Format local CI avec 0
     if (p.startsWith('0') && p.length === 10) {
-      formats.push('225' + p)        // sans le 0 : 225715469666
-      formats.push('2250' + p.slice(1)) // avec le 0 : 2250715469666
-    } else if (p.length === 9) {
-      formats.push('0' + p)          // avec 0 devant
-      formats.push('2250' + p)       // format complet
-      formats.push('225' + p)
-    } else if (p.startsWith('2250') && p.length === 13) {
-      formats.push('0' + p.slice(4)) // format local
-    } else if (p.startsWith('225') && p.length === 12) {
-      formats.push('0' + p.slice(3)) // format local
-      formats.push('2250' + p.slice(3)) // avec 0
+      formats.add('225' + p)          // 2250715469666
+      formats.add('2250' + p.slice(1)) // 2250715469666
+    }
+    // Format 9 chiffres sans 0
+    if (p.length === 9) {
+      formats.add('0' + p)
+      formats.add('2250' + p)
+      formats.add('225' + '0' + p)
+    }
+    // Format avec 2250 déjà
+    if (p.startsWith('2250') && p.length === 13) {
+      formats.add('0' + p.slice(4))
+    }
+    // Format 225 sans 0
+    if (p.startsWith('225') && p.length === 12) {
+      formats.add('0' + p.slice(3))
+      formats.add('2250' + p.slice(3))
     }
 
-    // Chercher avec tous les formats
-    const orFilter = formats.map(f => `phone.eq.${f},whatsapp.eq.${f}`).join(',')
+    const allFormats = Array.from(formats)
+    const orFilter = allFormats.map(f => `phone.eq.${f},whatsapp.eq.${f}`).join(',')
 
-    const { data } = await supabase
+    console.log('Recherche livreur avec formats:', allFormats)
+
+    const { data, error: searchErr } = await supabase
       .from('delivery_drivers')
       .select('id, full_name, actif')
       .or(orFilter)
       .eq('actif', true)
       .maybeSingle()
+
+    console.log('Résultat:', data, searchErr)
 
     if (data) {
       window.location.href = `/livreur/${data.id}`
@@ -106,10 +128,12 @@ export default function DevenirLivreurPage() {
     setLoading(true)
     setErrMsg('')
     try {
+      const phoneNorm = normalizePhone(form.phone)
+      const waNorm    = normalizePhone(form.whatsapp || form.phone)
       const { data, error } = await (supabase as any).from('delivery_drivers').insert({
         full_name:  form.full_name,
-        phone:      form.phone,
-        whatsapp:   form.whatsapp || form.phone,
+        phone:      phoneNorm,
+        whatsapp:   waNorm,
         email:      form.email || null,
         ville:      form.ville,
         quartiers:  form.quartiers,
